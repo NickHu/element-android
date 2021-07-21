@@ -21,21 +21,24 @@ import com.airbnb.epoxy.TypedEpoxyController
 import com.airbnb.mvrx.Fail
 import com.airbnb.mvrx.Incomplete
 import im.vector.app.R
+import im.vector.app.core.epoxy.ClickListener
 import im.vector.app.core.epoxy.errorWithRetryItem
 import im.vector.app.core.epoxy.loadingItem
 import im.vector.app.core.error.ErrorFormatter
 import im.vector.app.core.resources.ColorProvider
 import im.vector.app.core.resources.StringProvider
-import im.vector.app.core.ui.list.genericFooterItem
+import im.vector.app.core.ui.list.Action
+import im.vector.app.core.ui.list.genericEmptyWithActionItem
 import im.vector.app.core.ui.list.genericPillItem
 import im.vector.app.features.home.AvatarRenderer
 import im.vector.app.features.home.room.list.spaceChildInfoItem
 import me.gujun.android.span.span
 import org.matrix.android.sdk.api.failure.Failure
 import org.matrix.android.sdk.api.failure.MatrixError.Companion.M_UNRECOGNIZED
+import org.matrix.android.sdk.api.session.room.members.ChangeMembershipState
 import org.matrix.android.sdk.api.session.room.model.RoomType
 import org.matrix.android.sdk.api.session.room.model.SpaceChildInfo
-import org.matrix.android.sdk.api.util.MatrixItem
+import org.matrix.android.sdk.api.util.toMatrixItem
 import javax.inject.Inject
 
 class SpaceDirectoryController @Inject constructor(
@@ -50,6 +53,7 @@ class SpaceDirectoryController @Inject constructor(
         fun onSpaceChildClick(spaceChildInfo: SpaceChildInfo)
         fun onRoomClick(spaceChildInfo: SpaceChildInfo)
         fun retry()
+        fun addExistingRooms(spaceId: String)
     }
 
     var listener: InteractionListener? = null
@@ -73,11 +77,11 @@ class SpaceDirectoryController @Inject constructor(
                             span {
                                 span(host.stringProvider.getString(R.string.spaces_no_server_support_title)) {
                                     textStyle = "bold"
-                                    textColor = host.colorProvider.getColorFromAttribute(R.attr.riotx_text_primary)
+                                    textColor = host.colorProvider.getColorFromAttribute(R.attr.vctr_content_primary)
                                 }
                                 +"\n\n"
                                 span(host.stringProvider.getString(R.string.spaces_no_server_support_description)) {
-                                    textColor = host.colorProvider.getColorFromAttribute(R.attr.riotx_text_secondary)
+                                    textColor = host.colorProvider.getColorFromAttribute(R.attr.vctr_content_secondary)
                                 }
                             }
                     )
@@ -97,35 +101,64 @@ class SpaceDirectoryController @Inject constructor(
                     ?: emptyList()
 
             if (flattenChildInfo.isEmpty()) {
-                genericFooterItem {
-                    id("empty_footer")
-                    host.stringProvider.getString(R.string.no_result_placeholder)
+                genericEmptyWithActionItem {
+                    id("empty_res")
+                    title(host.stringProvider.getString(R.string.this_space_has_no_rooms))
+                    iconRes(R.drawable.ic_empty_icon_room)
+                    iconTint(host.colorProvider.getColorFromAttribute(R.attr.vctr_reaction_background_on))
+                    apply {
+                        if (data?.canAddRooms == true) {
+                            description(host.stringProvider.getString(R.string.this_space_has_no_rooms_admin))
+                            buttonAction(
+                                    Action(
+                                            title = host.stringProvider.getString(R.string.space_add_existing_rooms),
+                                            listener = object : ClickListener {
+                                                override fun invoke(p1: View) {
+                                                    host.listener?.addExistingRooms(data.spaceId)
+                                                }
+                                            }
+                                    ))
+                        } else {
+                            description(host.stringProvider.getString(R.string.this_space_has_no_rooms_not_admin))
+                        }
+                    }
                 }
             } else {
                 flattenChildInfo.forEach { info ->
                     val isSpace = info.roomType == RoomType.SPACE
                     val isJoined = data?.joinedRoomsIds?.contains(info.childRoomId) == true
                     val isLoading = data?.changeMembershipStates?.get(info.childRoomId)?.isInProgress() ?: false
+                    val error = (data?.changeMembershipStates?.get(info.childRoomId) as? ChangeMembershipState.FailedJoining)?.throwable
+                    // if it's known use that matrixItem because it would have a better computed name
+                    val matrixItem = data?.knownRoomSummaries?.find { it.roomId == info.childRoomId }?.toMatrixItem()
+                            ?: info.toMatrixItem()
                     spaceChildInfoItem {
                         id(info.childRoomId)
-                        matrixItem(MatrixItem.RoomItem(info.childRoomId, info.name, info.avatarUrl))
+                        matrixItem(matrixItem)
                         avatarRenderer(host.avatarRenderer)
                         topic(info.topic)
+                        errorLabel(
+                                error?.let {
+                                    host.stringProvider.getString(R.string.error_failed_to_join_room, host.errorFormatter.toHumanReadable(it))
+                                }
+                        )
                         memberCount(info.activeMemberCount ?: 0)
-                        space(isSpace)
                         loading(isLoading)
                         buttonLabel(
-                                if (isJoined) host.stringProvider.getString(R.string.action_open)
-                                else host.stringProvider.getString(R.string.join)
+                                when {
+                                    error != null -> host.stringProvider.getString(R.string.global_retry)
+                                    isJoined      -> host.stringProvider.getString(R.string.action_open)
+                                    else          -> host.stringProvider.getString(R.string.join)
+                                }
                         )
                         apply {
                             if (isSpace) {
-                                itemClickListener(View.OnClickListener { host.listener?.onSpaceChildClick(info) })
+                                itemClickListener { host.listener?.onSpaceChildClick(info) }
                             } else {
-                                itemClickListener(View.OnClickListener { host.listener?.onRoomClick(info) })
+                                itemClickListener { host.listener?.onRoomClick(info) }
                             }
                         }
-                        buttonClickListener(View.OnClickListener { host.listener?.onButtonClick(info) })
+                        buttonClickListener { host.listener?.onButtonClick(info) }
                     }
                 }
             }
