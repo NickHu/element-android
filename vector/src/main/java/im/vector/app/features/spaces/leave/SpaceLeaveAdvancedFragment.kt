@@ -1,51 +1,63 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.leave
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.widget.SearchView
+import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.core.view.isVisible
+import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.activityViewModel
 import com.airbnb.mvrx.withState
-import com.jakewharton.rxbinding3.appcompat.queryTextChanges
+import dagger.hilt.android.AndroidEntryPoint
+import im.vector.app.R
 import im.vector.app.core.extensions.cleanup
 import im.vector.app.core.extensions.configureWith
 import im.vector.app.core.platform.VectorBaseFragment
+import im.vector.app.core.platform.VectorMenuProvider
+import im.vector.app.core.utils.ToggleableAppBarLayoutBehavior
 import im.vector.app.databinding.FragmentSpaceLeaveAdvancedBinding
-import io.reactivex.rxkotlin.subscribeBy
+import im.vector.lib.strings.CommonStrings
 import org.matrix.android.sdk.api.session.room.model.RoomSummary
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-class SpaceLeaveAdvancedFragment @Inject constructor(
-        val controller: SelectChildrenController
-) : VectorBaseFragment<FragmentSpaceLeaveAdvancedBinding>(),
-        SelectChildrenController.Listener {
+@AndroidEntryPoint
+class SpaceLeaveAdvancedFragment :
+        VectorBaseFragment<FragmentSpaceLeaveAdvancedBinding>(),
+        SelectChildrenController.Listener,
+        VectorMenuProvider {
+
+    @Inject lateinit var controller: SelectChildrenController
 
     override fun getBinding(inflater: LayoutInflater, container: ViewGroup?) =
             FragmentSpaceLeaveAdvancedBinding.inflate(layoutInflater, container, false)
 
     val viewModel: SpaceLeaveAdvancedViewModel by activityViewModel()
 
+    override fun getMenuRes() = R.menu.menu_space_leave
+
+    override fun handleMenuItemSelected(item: MenuItem) = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupToolbar(views.toolbar)
         controller.listener = this
+
+        withState(viewModel) { state ->
+            setupToolbar(views.toolbar)
+                    .setSubtitle(state.spaceSummary?.name)
+                    .allowBack()
+        }
+
         views.roomList.configureWith(controller)
         views.spaceLeaveCancel.debouncedClicks { requireActivity().finish() }
 
@@ -53,12 +65,22 @@ class SpaceLeaveAdvancedFragment @Inject constructor(
             viewModel.handle(SpaceLeaveAdvanceViewAction.DoLeave)
         }
 
-        views.publicRoomsFilter.queryTextChanges()
-                .debounce(100, TimeUnit.MILLISECONDS)
-                .subscribeBy {
-                    viewModel.handle(SpaceLeaveAdvanceViewAction.UpdateFilter(it.toString()))
-                }
-                .disposeOnDestroyView()
+        views.spaceLeaveSelectGroup.setOnCheckedChangeListener { _, optionId ->
+            when (optionId) {
+                R.id.spaceLeaveSelectAll -> viewModel.handle(SpaceLeaveAdvanceViewAction.SelectAll)
+                R.id.spaceLeaveSelectNone -> viewModel.handle(SpaceLeaveAdvanceViewAction.SelectNone)
+            }
+        }
+    }
+
+    override fun handlePrepareMenu(menu: Menu) {
+        menu.findItem(R.id.menu_space_leave_search)?.let { searchItem ->
+            searchItem.bind(
+                    onExpanded = { viewModel.handle(SpaceLeaveAdvanceViewAction.SetFilteringEnabled(isEnabled = true)) },
+                    onCollapsed = { viewModel.handle(SpaceLeaveAdvanceViewAction.SetFilteringEnabled(isEnabled = false)) },
+                    onTextChanged = { viewModel.handle(SpaceLeaveAdvanceViewAction.UpdateFilter(it)) }
+            )
+        }
     }
 
     override fun onDestroyView() {
@@ -69,10 +91,77 @@ class SpaceLeaveAdvancedFragment @Inject constructor(
 
     override fun invalidate() = withState(viewModel) { state ->
         super.invalidate()
+
+        state.spaceSummary?.let { summary ->
+            val warningMessage: CharSequence? = when {
+                summary.otherMemberIds.isEmpty() -> getString(CommonStrings.space_leave_prompt_msg_only_you)
+                state.isLastAdmin -> getString(CommonStrings.space_leave_prompt_msg_as_admin)
+                !summary.isPublic -> getString(CommonStrings.space_leave_prompt_msg_private)
+                else -> null
+            }
+            views.spaceLeavePromptDescription.isVisible = warningMessage != null
+            views.spaceLeavePromptDescription.text = warningMessage
+        }
+
+        views.spaceLeavePromptTitle.text = getString(CommonStrings.space_leave_prompt_msg_with_name, state.spaceSummary?.name ?: "")
+
+        if (state.isFilteringEnabled) {
+            views.appBarLayout.setExpanded(false)
+        }
+
+        updateAppBarBehaviorState(state)
+        updateRadioButtonsState(state)
+
         controller.setData(state)
     }
 
     override fun onItemSelected(roomSummary: RoomSummary) {
         viewModel.handle(SpaceLeaveAdvanceViewAction.ToggleSelection(roomSummary.roomId))
+    }
+
+    private fun updateAppBarBehaviorState(state: SpaceLeaveAdvanceViewState) {
+        val behavior = (views.appBarLayout.layoutParams as CoordinatorLayout.LayoutParams).behavior as ToggleableAppBarLayoutBehavior
+        behavior.isEnabled = !state.isFilteringEnabled
+    }
+
+    private fun updateRadioButtonsState(state: SpaceLeaveAdvanceViewState) {
+        (state.allChildren as? Success)?.invoke()?.size?.let { allChildrenCount ->
+            when (state.selectedRooms.size) {
+                0 -> views.spaceLeaveSelectNone.isChecked = true
+                allChildrenCount -> views.spaceLeaveSelectAll.isChecked = true
+                else -> views.spaceLeaveSelectSemi.isChecked = true
+            }
+        }
+    }
+
+    private fun MenuItem.bind(
+            onExpanded: () -> Unit,
+            onCollapsed: () -> Unit,
+            onTextChanged: (String) -> Unit
+    ) {
+        setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                onExpanded()
+                return true
+            }
+
+            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                onCollapsed()
+                return true
+            }
+        })
+
+        val searchView = actionView as SearchView
+
+        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                return false
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                onTextChanged(newText ?: "")
+                return true
+            }
+        })
     }
 }

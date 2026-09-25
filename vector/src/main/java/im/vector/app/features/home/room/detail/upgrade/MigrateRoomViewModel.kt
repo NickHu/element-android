@@ -1,48 +1,41 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.upgrade
 
-import com.airbnb.mvrx.ActivityViewModelContext
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.platform.EmptyViewEvents
 import im.vector.app.core.platform.VectorViewModel
 import im.vector.app.features.session.coroutineScope
 import kotlinx.coroutines.launch
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoom
+import org.matrix.android.sdk.api.session.getRoomSummary
 
 class MigrateRoomViewModel @AssistedInject constructor(
         @Assisted initialState: MigrateRoomViewState,
         private val session: Session,
-        private val upgradeRoomViewModelTask: UpgradeRoomViewModelTask)
-    : VectorViewModel<MigrateRoomViewState, MigrateRoomAction, EmptyViewEvents>(initialState) {
+        private val upgradeRoomViewModelTask: UpgradeRoomViewModelTask
+) :
+        VectorViewModel<MigrateRoomViewState, MigrateRoomAction, EmptyViewEvents>(initialState) {
 
     init {
         val room = session.getRoom(initialState.roomId)
         val summary = session.getRoomSummary(initialState.roomId)
         setState {
             copy(
-                    currentVersion = room?.getRoomVersion(),
+                    currentVersion = room?.roomVersionService()?.getRoomVersion(),
                     isPublic = summary?.isPublic ?: false,
                     otherMemberCount = summary?.otherMemberIds?.count() ?: 0,
                     knownParents = summary?.flattenParentIds ?: emptyList()
@@ -51,24 +44,15 @@ class MigrateRoomViewModel @AssistedInject constructor(
     }
 
     @AssistedFactory
-    interface Factory {
-        fun create(initialState: MigrateRoomViewState): MigrateRoomViewModel
+    interface Factory : MavericksAssistedViewModelFactory<MigrateRoomViewModel, MigrateRoomViewState> {
+        override fun create(initialState: MigrateRoomViewState): MigrateRoomViewModel
     }
 
-    companion object : MvRxViewModelFactory<MigrateRoomViewModel, MigrateRoomViewState> {
-
-        override fun create(viewModelContext: ViewModelContext, state: MigrateRoomViewState): MigrateRoomViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
-        }
-    }
+    companion object : MavericksViewModelFactory<MigrateRoomViewModel, MigrateRoomViewState> by hiltMavericksViewModelFactory()
 
     override fun handle(action: MigrateRoomAction) {
         when (action) {
-            is MigrateRoomAction.SetAutoInvite             -> {
+            is MigrateRoomAction.SetAutoInvite -> {
                 setState {
                     copy(shouldIssueInvites = action.autoInvite)
                 }
@@ -78,7 +62,7 @@ class MigrateRoomViewModel @AssistedInject constructor(
                     copy(shouldUpdateKnownParents = action.update)
                 }
             }
-            MigrateRoomAction.UpgradeRoom                  -> {
+            MigrateRoomAction.UpgradeRoom -> {
                 handleUpgradeRoom()
             }
         }

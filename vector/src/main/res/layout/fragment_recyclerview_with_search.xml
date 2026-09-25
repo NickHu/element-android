@@ -27,43 +27,26 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:minHeight="0dp"
-            app:layout_scrollFlags="scroll|exitUntilCollapsed|snap|enterAlways">
+            app:layout_scrollFlags="scroll|exitUntilCollapsed|snap|enterAlways"
+            app:title="@string/bottom_action_people" />
 
-            <LinearLayout
+        <!-- Trick to remove surrounding padding (clip from wrapping frame) -->
+        <FrameLayout
+            android:id="@+id/progressBar"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@id/appBarLayout"
+            tools:visibility="visible">
+
+            <ProgressBar
+                style="@style/Widget.Vector.ProgressBar.Horizontal"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical|start"
-                android:orientation="vertical">
+                android:layout_height="14dp"
+                android:layout_gravity="center"
+                android:indeterminate="true" />
 
-                <TextView
-                    android:id="@+id/appBarTitle"
-                    style="@style/Widget.Vector.TextView.HeadlineMedium"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:ellipsize="end"
-                    android:gravity="start|center"
-                    android:maxLines="1"
-                    android:textColor="?vctr_content_primary"
-                    android:textStyle="bold"
-                    tools:text="@tools:sample/lorem/random" />
-
-                <TextView
-                    android:id="@+id/appBarSpaceInfo"
-                    style="@style/Widget.Vector.TextView.Subtitle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:ellipsize="end"
-                    android:gravity="start|center"
-                    android:maxLines="1"
-                    android:textColor="?vctr_content_secondary"
-                    tools:text="@tools:sample/lorem/random" />
-
-            </LinearLayout>
-
-        </com.google.android.material.appbar.MaterialToolbar>
-
+        </FrameLayout>
 
         <androidx.appcompat.widget.SearchView
             android:id="@+id/memberNameFilter"
@@ -73,7 +56,7 @@
             android:layout_marginBottom="8dp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/addRoomToSpaceToolbar"
+            app:layout_constraintTop_toBottomOf="@id/addRoomToSpaceToolbar"
             app:queryHint="@string/search_hint_room_name" />
 
     </com.google.android.material.appbar.AppBarLayout>

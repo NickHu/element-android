@@ -18,7 +18,7 @@ package org.matrix.android.sdk.internal.session.room.accountdata
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MediatorLiveData
-import androidx.lifecycle.Transformations
+import androidx.lifecycle.map
 import com.zhuinden.monarchy.Monarchy
 import io.realm.Realm
 import io.realm.RealmQuery
@@ -33,17 +33,19 @@ import org.matrix.android.sdk.internal.database.model.RoomEntityFields
 import org.matrix.android.sdk.internal.di.SessionDatabase
 import javax.inject.Inject
 
-internal class RoomAccountDataDataSource @Inject constructor(@SessionDatabase private val monarchy: Monarchy,
-                                                             private val realmSessionProvider: RealmSessionProvider,
-                                                             private val accountDataMapper: AccountDataMapper) {
+internal class RoomAccountDataDataSource @Inject constructor(
+        @SessionDatabase private val monarchy: Monarchy,
+        private val realmSessionProvider: RealmSessionProvider,
+        private val accountDataMapper: AccountDataMapper
+) {
 
     fun getAccountDataEvent(roomId: String, type: String): RoomAccountDataEvent? {
         return getAccountDataEvents(roomId, setOf(type)).firstOrNull()
     }
 
     fun getLiveAccountDataEvent(roomId: String, type: String): LiveData<Optional<RoomAccountDataEvent>> {
-        return Transformations.map(getLiveAccountDataEvents(roomId, setOf(type))) {
-            it.firstOrNull()?.toOptional()
+        return getLiveAccountDataEvents(roomId, setOf(type)).map {
+            it.firstOrNull().toOptional()
         }
     }
 
@@ -54,8 +56,7 @@ internal class RoomAccountDataDataSource @Inject constructor(@SessionDatabase pr
      */
     fun getAccountDataEvents(roomId: String?, types: Set<String>): List<RoomAccountDataEvent> {
         return realmSessionProvider.withRealm { realm ->
-            val roomEntity = buildRoomQuery(realm, roomId, types).findFirst() ?: return@withRealm emptyList()
-            roomEntity.accountDataEvents(types)
+            buildRoomQuery(realm, roomId, types).findAll().flatMap { it.accountDataEvents(types) }
         }
     }
 

@@ -1,39 +1,36 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.invite
 
 import im.vector.app.ActiveSessionDataSource
 import im.vector.app.features.session.coroutineScope
-import io.reactivex.Observable
-import io.reactivex.disposables.Disposable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.matrix.android.sdk.api.extensions.orFalse
 import org.matrix.android.sdk.api.failure.Failure
 import org.matrix.android.sdk.api.session.Session
-import org.matrix.android.sdk.api.session.room.Room
+import org.matrix.android.sdk.api.session.getRoom
 import org.matrix.android.sdk.api.session.room.members.ChangeMembershipState
 import org.matrix.android.sdk.api.session.room.model.Membership
 import org.matrix.android.sdk.api.session.room.roomSummaryQueryParams
-import org.matrix.android.sdk.rx.rx
+import org.matrix.android.sdk.flow.flow
 import timber.log.Timber
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,9 +45,10 @@ class InvitesAcceptor @Inject constructor(
         private val autoAcceptInvites: AutoAcceptInvites
 ) : Session.Listener {
 
-    private lateinit var activeSessionDisposable: Disposable
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     private val shouldRejectRoomIds = mutableSetOf<String>()
-    private val invitedRoomDisposables = HashMap<String, Disposable>()
+    private val activeSessionIds = mutableSetOf<String>()
     private val semaphore = Semaphore(1)
 
     fun initialize() {
@@ -58,59 +56,58 @@ class InvitesAcceptor @Inject constructor(
     }
 
     private fun observeActiveSession() {
-        activeSessionDisposable = sessionDataSource.observe()
+        sessionDataSource.stream()
                 .distinctUntilChanged()
-                .subscribe {
+                .onEach {
                     it.orNull()?.let { session ->
                         onSessionActive(session)
                     }
                 }
+                .launchIn(coroutineScope)
     }
 
     private fun onSessionActive(session: Session) {
         if (!autoAcceptInvites.isEnabled) {
             return
         }
-        if (invitedRoomDisposables.containsKey(session.sessionId)) {
+        if (activeSessionIds.contains(session.sessionId)) {
             return
         }
+        activeSessionIds.add(session.sessionId)
         session.addListener(this)
         val roomQueryParams = roomSummaryQueryParams {
             this.memberships = listOf(Membership.INVITE)
         }
-        val rxSession = session.rx()
-        Observable
-                .combineLatest(
-                        rxSession.liveRoomSummaries(roomQueryParams),
-                        rxSession.liveRoomChangeMembershipState().debounce(1, TimeUnit.SECONDS),
-                        { invitedRooms, _ -> invitedRooms.map { it.roomId } }
-                )
+        val flowSession = session.flow()
+        combine(
+                flowSession.liveRoomSummaries(roomQueryParams),
+                flowSession.liveRoomChangeMembershipState().debounce(1000)
+        ) { invitedRooms, _ -> invitedRooms.map { it.roomId } }
                 .filter { it.isNotEmpty() }
-                .subscribe { invitedRoomIds ->
-                    session.coroutineScope.launch {
-                        semaphore.withPermit {
-                            Timber.v("Invited roomIds: $invitedRoomIds")
-                            for (roomId in invitedRoomIds) {
-                                async { session.joinRoomSafely(roomId) }.start()
-                            }
-                        }
-                    }
-                }
-                .also {
-                    invitedRoomDisposables[session.sessionId] = it
-                }
+                .onEach { invitedRoomIds ->
+                    joinInvitedRooms(session, invitedRoomIds)
+                }.launchIn(session.coroutineScope)
+    }
+
+    private suspend fun joinInvitedRooms(session: Session, invitedRoomIds: List<String>) = coroutineScope {
+        semaphore.withPermit {
+            Timber.v("Invited roomIds: $invitedRoomIds")
+            for (roomId in invitedRoomIds) {
+                async { session.joinRoomSafely(roomId) }.start()
+            }
+        }
     }
 
     private suspend fun Session.joinRoomSafely(roomId: String) {
         if (shouldRejectRoomIds.contains(roomId)) {
-            getRoom(roomId)?.rejectInviteSafely()
+            rejectInviteSafely(roomId)
             return
         }
-        val roomMembershipChanged = getChangeMemberships(roomId)
+        val roomMembershipChanged = roomService().getChangeMemberships(roomId)
         if (roomMembershipChanged != ChangeMembershipState.Joined && !roomMembershipChanged.isInProgress()) {
             try {
                 Timber.v("Try auto join room: $roomId")
-                joinRoom(roomId)
+                roomService().joinRoom(roomId)
             } catch (failure: Throwable) {
                 Timber.v("Failed auto join room: $roomId")
                 // if we got 404 on invites, the inviting user have left or the hs is off.
@@ -120,16 +117,16 @@ class InvitesAcceptor @Inject constructor(
                     // if the inviting user is on the same HS, there can only be one cause: they left, so we try to reject the invite.
                     if (inviterId?.endsWith(sessionParams.credentials.homeServer.orEmpty()).orFalse()) {
                         shouldRejectRoomIds.add(roomId)
-                        room.rejectInviteSafely()
+                        rejectInviteSafely(roomId)
                     }
                 }
             }
         }
     }
 
-    private suspend fun Room.rejectInviteSafely() {
+    private suspend fun Session.rejectInviteSafely(roomId: String) {
         try {
-            leave(null)
+            roomService().leaveRoom(roomId)
             shouldRejectRoomIds.remove(roomId)
         } catch (failure: Throwable) {
             Timber.v("Fail rejecting invite for room: $roomId")
@@ -138,6 +135,6 @@ class InvitesAcceptor @Inject constructor(
 
     override fun onSessionStopped(session: Session) {
         session.removeListener(this)
-        invitedRoomDisposables.remove(session.sessionId)?.dispose()
+        activeSessionIds.remove(session.sessionId)
     }
 }

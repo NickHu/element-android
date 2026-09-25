@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.timeline.factory
@@ -22,6 +13,7 @@ import im.vector.app.features.home.room.detail.timeline.merged.MergedTimelines
 import kotlinx.coroutines.CoroutineScope
 import org.matrix.android.sdk.api.session.Session
 import org.matrix.android.sdk.api.session.events.model.EventType
+import org.matrix.android.sdk.api.session.getRoom
 import org.matrix.android.sdk.api.session.room.Room
 import org.matrix.android.sdk.api.session.room.timeline.Timeline
 import javax.inject.Inject
@@ -35,21 +27,27 @@ private val secondaryTimelineAllowedTypes = listOf(
 
 class TimelineFactory @Inject constructor(private val session: Session, private val timelineSettingsFactory: TimelineSettingsFactory) {
 
-    fun createTimeline(coroutineScope: CoroutineScope, mainRoom: Room, eventId: String?): Timeline {
-        val settings = timelineSettingsFactory.create()
+    fun createTimeline(
+            coroutineScope: CoroutineScope,
+            mainRoom: Room,
+            eventId: String?,
+            rootThreadEventId: String?
+    ): Timeline {
+        val settings = timelineSettingsFactory.create(rootThreadEventId)
+
         if (!session.vectorCallService.protocolChecker.supportVirtualRooms) {
-            return mainRoom.createTimeline(eventId, settings)
+            return mainRoom.timelineService().createTimeline(eventId, settings)
         }
         val virtualRoomId = session.vectorCallService.userMapper.virtualRoomForNativeRoom(mainRoom.roomId)
         return if (virtualRoomId == null) {
-            mainRoom.createTimeline(eventId, settings)
+            mainRoom.timelineService().createTimeline(eventId, settings)
         } else {
             val virtualRoom = session.getRoom(virtualRoomId)!!
             MergedTimelines(
                     coroutineScope = coroutineScope,
-                    mainTimeline = mainRoom.createTimeline(eventId, settings),
+                    mainTimeline = mainRoom.timelineService().createTimeline(eventId, settings),
                     secondaryTimelineParams = MergedTimelines.SecondaryTimelineParams(
-                            timeline = virtualRoom.createTimeline(null, settings),
+                            timeline = virtualRoom.timelineService().createTimeline(null, settings),
                             shouldFilterTypes = true,
                             allowedTypes = secondaryTimelineAllowedTypes
                     )

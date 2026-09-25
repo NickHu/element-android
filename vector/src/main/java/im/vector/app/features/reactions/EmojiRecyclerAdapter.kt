@@ -1,17 +1,8 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.features.reactions
 
@@ -32,17 +23,17 @@ import androidx.transition.AutoTransition
 import androidx.transition.TransitionManager
 import im.vector.app.R
 import im.vector.app.features.reactions.data.EmojiData
+import im.vector.lib.core.utils.compat.removeIfCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.abs
 
-/**
- *
- * TODO: Configure Span using available width and emoji size
- * TODO: Performances
- * TODO: Scroll to section - Find a way to snap section to the top
+/*
+ * TODO Configure Span using available width and emoji size
+ * TODO Performances
+ * TODO Scroll to section - Find a way to snap section to the top
  */
 class EmojiRecyclerAdapter @Inject constructor() :
         RecyclerView.Adapter<EmojiRecyclerAdapter.ViewHolder>() {
@@ -138,7 +129,7 @@ class EmojiRecyclerAdapter @Inject constructor() :
         itemView.setOnClickListener(itemClickListener)
         val viewHolder = when (viewType) {
             R.layout.grid_section_header -> SectionViewHolder(itemView)
-            else                         -> EmojiViewHolder(itemView)
+            else -> EmojiViewHolder(itemView)
         }
         Trace.endSection()
         return viewHolder
@@ -215,14 +206,7 @@ class EmojiRecyclerAdapter @Inject constructor() :
     override fun onViewRecycled(holder: ViewHolder) {
         if (holder is EmojiViewHolder) {
             holder.data = null
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                toUpdateWhenNotBusy.removeIf { it.second == holder }
-            } else {
-                val index = toUpdateWhenNotBusy.indexOfFirst { it.second == holder }
-                if (index != -1) {
-                    toUpdateWhenNotBusy.removeAt(index)
-                }
-            }
+            toUpdateWhenNotBusy.removeIfCompat { it.second == holder }
         }
         super.onViewRecycled(holder)
     }
@@ -295,10 +279,10 @@ class EmojiRecyclerAdapter @Inject constructor() :
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
             super.onScrollStateChanged(recyclerView, newState)
             scrollState = when (newState) {
-                RecyclerView.SCROLL_STATE_IDLE     -> ScrollState.IDLE
+                RecyclerView.SCROLL_STATE_IDLE -> ScrollState.IDLE
                 RecyclerView.SCROLL_STATE_SETTLING -> ScrollState.SETTLING
                 RecyclerView.SCROLL_STATE_DRAGGING -> ScrollState.DRAGGING
-                else                               -> ScrollState.UNKNOWN
+                else -> ScrollState.UNKNOWN
             }
 
             // TODO better

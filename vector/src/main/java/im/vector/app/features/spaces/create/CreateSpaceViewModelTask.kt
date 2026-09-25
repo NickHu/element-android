@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.create
@@ -35,8 +26,7 @@ import org.matrix.android.sdk.api.session.room.model.RoomJoinRulesAllowEntry
 import org.matrix.android.sdk.api.session.room.model.create.CreateRoomParams
 import org.matrix.android.sdk.api.session.room.model.create.CreateRoomPreset
 import org.matrix.android.sdk.api.session.room.model.create.RestrictedRoomPreset
-
-import org.matrix.android.sdk.api.session.room.powerlevels.Role
+import org.matrix.android.sdk.api.session.room.powerlevels.UserPowerLevel
 import org.matrix.android.sdk.api.session.space.CreateSpaceParams
 import timber.log.Timber
 import javax.inject.Inject
@@ -75,7 +65,7 @@ class CreateSpaceViewModelTask @Inject constructor(
                 if (params.isPublic) {
                     this.roomAliasName = params.spaceAlias
                     this.powerLevelContentOverride = (powerLevelContentOverride ?: PowerLevelsContent()).copy(
-                            invite = Role.Default.value
+                            invite = UserPowerLevel.User.value
                     )
                     this.preset = CreateRoomPreset.PRESET_PUBLIC_CHAT
                     this.historyVisibility = RoomHistoryVisibility.WORLD_READABLE
@@ -89,7 +79,7 @@ class CreateSpaceViewModelTask @Inject constructor(
                             }
                     )
                     this.powerLevelContentOverride = (powerLevelContentOverride ?: PowerLevelsContent()).copy(
-                            invite = Role.Moderator.value
+                            invite = UserPowerLevel.Moderator.value
                     )
                 }
             })
@@ -114,7 +104,7 @@ class CreateSpaceViewModelTask @Inject constructor(
                     try {
                         val roomId = try {
                             if (params.isPublic) {
-                                session.createRoom(
+                                session.roomService().createRoom(
                                         CreateRoomParams().apply {
                                             this.name = roomName
                                             this.preset = CreateRoomPreset.PRESET_PUBLIC_CHAT
@@ -122,17 +112,14 @@ class CreateSpaceViewModelTask @Inject constructor(
                                 )
                             } else {
                                 val homeServerCapabilities = session
+                                        .homeServerCapabilitiesService()
                                         .getHomeServerCapabilities()
                                 val restrictedSupport = homeServerCapabilities
                                         .isFeatureSupported(HomeServerCapabilities.ROOM_CAP_RESTRICTED)
 
-                                val createRestricted = when (restrictedSupport) {
-                                    HomeServerCapabilities.RoomCapabilitySupport.SUPPORTED          -> true
-                                    HomeServerCapabilities.RoomCapabilitySupport.SUPPORTED_UNSTABLE -> vectorPreferences.labsUseExperimentalRestricted()
-                                    else                                                            -> false
-                                }
+                                val createRestricted = restrictedSupport == HomeServerCapabilities.RoomCapabilitySupport.SUPPORTED
                                 if (createRestricted) {
-                                    session.createRoom(CreateRoomParams().apply {
+                                    session.roomService().createRoom(CreateRoomParams().apply {
                                         this.name = roomName
                                         this.featurePreset = RestrictedRoomPreset(
                                                 homeServerCapabilities,
@@ -145,7 +132,7 @@ class CreateSpaceViewModelTask @Inject constructor(
                                         }
                                     })
                                 } else {
-                                    session.createRoom(CreateRoomParams().apply {
+                                    session.roomService().createRoom(CreateRoomParams().apply {
                                         this.name = roomName
                                         visibility = RoomDirectoryVisibility.PRIVATE
                                         this.preset = CreateRoomPreset.PRESET_PRIVATE_CHAT

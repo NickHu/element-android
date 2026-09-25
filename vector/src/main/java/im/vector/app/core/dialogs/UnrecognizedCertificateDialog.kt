@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.core.dialogs
 
@@ -21,14 +12,13 @@ import im.vector.app.R
 import im.vector.app.core.di.ActiveSessionHolder
 import im.vector.app.core.resources.StringProvider
 import im.vector.app.databinding.DialogSslFingerprintBinding
-import org.matrix.android.sdk.internal.network.ssl.Fingerprint
+import im.vector.lib.strings.CommonStrings
+import org.matrix.android.sdk.api.network.ssl.Fingerprint
 import timber.log.Timber
-import java.util.HashMap
-import java.util.HashSet
 import javax.inject.Inject
 
 /**
- * This class displays the unknown certificate dialog
+ * This class displays the unknown certificate dialog.
  */
 class UnrecognizedCertificateDialog @Inject constructor(
         private val activeSessionHolder: ActiveSessionHolder,
@@ -39,14 +29,17 @@ class UnrecognizedCertificateDialog @Inject constructor(
 
     /**
      * Display a certificate dialog box, asking the user about an unknown certificate
-     * To use when user is currently logged in
+     * To use when user is currently logged in.
      *
+     * @param activity the Android activity
      * @param unrecognizedFingerprint the fingerprint for the unknown certificate
-     * @param callback                callback to fire when the user makes a decision
+     * @param callback callback to fire when the user makes a decision
      */
-    fun show(activity: Activity,
-             unrecognizedFingerprint: Fingerprint,
-             callback: Callback) {
+    fun show(
+            activity: Activity,
+            unrecognizedFingerprint: Fingerprint,
+            callback: Callback
+    ) {
         val userId = activeSessionHolder.getSafeActiveSession()?.myUserId
         val hsConfig = activeSessionHolder.getSafeActiveSession()?.sessionParams?.homeServerConnectionConfig ?: return
 
@@ -62,12 +55,14 @@ class UnrecognizedCertificateDialog @Inject constructor(
     }
 
     /**
-     * To use during login flow
+     * To use during login flow.
      */
-    fun show(activity: Activity,
-             unrecognizedFingerprint: Fingerprint,
-             homeServerUrl: String,
-             callback: Callback) {
+    fun show(
+            activity: Activity,
+            unrecognizedFingerprint: Fingerprint,
+            homeServerUrl: String,
+            callback: Callback
+    ) {
         internalShow(
                 activity = activity,
                 unrecognizedFingerprint = unrecognizedFingerprint,
@@ -80,19 +75,25 @@ class UnrecognizedCertificateDialog @Inject constructor(
     }
 
     /**
-     * Display a certificate dialog box, asking the user about an unknown certificate
+     * Display a certificate dialog box, asking the user about an unknown certificate.
      *
+     * @param activity the Activity
      * @param unrecognizedFingerprint the fingerprint for the unknown certificate
-     * @param existing                the current session already exist, so it mean that something has changed server side
-     * @param callback                callback to fire when the user makes a decision
+     * @param existing the current session already exist, so it mean that something has changed server side
+     * @param callback callback to fire when the user makes a decision
+     * @param userId the matrix userId
+     * @param homeServerUrl the homeserver url
+     * @param homeServerConnectionConfigHasFingerprints true if the homeServerConnectionConfig has fingerprint
      */
-    private fun internalShow(activity: Activity,
-                             unrecognizedFingerprint: Fingerprint,
-                             existing: Boolean,
-                             callback: Callback,
-                             userId: String?,
-                             homeServerUrl: String,
-                             homeServerConnectionConfigHasFingerprints: Boolean) {
+    private fun internalShow(
+            activity: Activity,
+            unrecognizedFingerprint: Fingerprint,
+            existing: Boolean,
+            callback: Callback,
+            userId: String?,
+            homeServerUrl: String,
+            homeServerConnectionConfigHasFingerprints: Boolean
+    ) {
         val dialogId = userId ?: homeServerUrl + unrecognizedFingerprint.displayableHexRepr
 
         if (openDialogIds.contains(dialogId)) {
@@ -112,33 +113,37 @@ class UnrecognizedCertificateDialog @Inject constructor(
         val inflater = activity.layoutInflater
         val layout = inflater.inflate(R.layout.dialog_ssl_fingerprint, null)
         val views = DialogSslFingerprintBinding.bind(layout)
-        views.sslFingerprintTitle.text = stringProvider.getString(R.string.ssl_fingerprint_hash, unrecognizedFingerprint.hashType.toString())
+        views.sslFingerprintTitle.text = stringProvider.getString(CommonStrings.ssl_fingerprint_hash, unrecognizedFingerprint.hashType.toString())
         views.sslFingerprint.text = unrecognizedFingerprint.displayableHexRepr
         if (userId != null) {
-            views.sslUserId.text = stringProvider.getString(R.string.generic_label_and_value,
-                    stringProvider.getString(R.string.username),
-                    userId)
+            views.sslUserId.text = stringProvider.getString(
+                    CommonStrings.generic_label_and_value,
+                    stringProvider.getString(CommonStrings.username),
+                    userId
+            )
         } else {
-            views.sslUserId.text = stringProvider.getString(R.string.generic_label_and_value,
-                    stringProvider.getString(R.string.hs_url),
-                    homeServerUrl)
+            views.sslUserId.text = stringProvider.getString(
+                    CommonStrings.generic_label_and_value,
+                    stringProvider.getString(CommonStrings.hs_url),
+                    homeServerUrl
+            )
         }
         if (existing) {
             if (homeServerConnectionConfigHasFingerprints) {
-                views.sslExplanation.text = stringProvider.getString(R.string.ssl_expected_existing_expl)
+                views.sslExplanation.text = stringProvider.getString(CommonStrings.ssl_expected_existing_expl)
             } else {
-                views.sslExplanation.text = stringProvider.getString(R.string.ssl_unexpected_existing_expl)
+                views.sslExplanation.text = stringProvider.getString(CommonStrings.ssl_unexpected_existing_expl)
             }
         } else {
-            views.sslExplanation.text = stringProvider.getString(R.string.ssl_cert_new_account_expl)
+            views.sslExplanation.text = stringProvider.getString(CommonStrings.ssl_cert_new_account_expl)
         }
         builder.setView(layout)
-        builder.setTitle(R.string.ssl_could_not_verify)
-        builder.setPositiveButton(R.string.ssl_trust) { _, _ ->
+        builder.setTitle(CommonStrings.ssl_could_not_verify)
+        builder.setPositiveButton(CommonStrings.ssl_trust) { _, _ ->
             callback.onAccept()
         }
         if (existing) {
-            builder.setNegativeButton(R.string.ssl_remain_offline) { _, _ ->
+            builder.setNegativeButton(CommonStrings.ssl_remain_offline) { _, _ ->
                 if (userId != null) {
                     var f = ignoredFingerprints[userId]
                     if (f == null) {
@@ -149,9 +154,9 @@ class UnrecognizedCertificateDialog @Inject constructor(
                 }
                 callback.onIgnore()
             }
-            builder.setNeutralButton(R.string.ssl_logout_account) { _, _ -> callback.onReject() }
+            builder.setNeutralButton(CommonStrings.ssl_logout_account) { _, _ -> callback.onReject() }
         } else {
-            builder.setNegativeButton(R.string.cancel) { _, _ -> callback.onReject() }
+            builder.setNegativeButton(CommonStrings.action_cancel) { _, _ -> callback.onReject() }
         }
 
         builder.setOnDismissListener {
@@ -165,17 +170,17 @@ class UnrecognizedCertificateDialog @Inject constructor(
 
     interface Callback {
         /**
-         * The certificate was explicitly accepted
+         * The certificate was explicitly accepted.
          */
         fun onAccept()
 
         /**
-         * The warning was ignored by the user
+         * The warning was ignored by the user.
          */
         fun onIgnore()
 
         /**
-         * The unknown certificate was explicitly rejected
+         * The unknown certificate was explicitly rejected.
          */
         fun onReject()
     }

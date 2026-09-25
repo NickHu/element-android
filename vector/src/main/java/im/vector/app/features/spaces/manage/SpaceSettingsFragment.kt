@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.manage
@@ -24,21 +15,22 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import com.airbnb.mvrx.activityViewModel
 import com.airbnb.mvrx.args
 import com.airbnb.mvrx.fragmentViewModel
 import com.airbnb.mvrx.withState
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.R
 import im.vector.app.core.dialogs.GalleryOrCameraDialogHelper
+import im.vector.app.core.dialogs.GalleryOrCameraDialogHelperFactory
 import im.vector.app.core.extensions.cleanup
 import im.vector.app.core.extensions.configureWith
-import im.vector.app.core.extensions.exhaustive
 import im.vector.app.core.intent.getFilenameFromUri
 import im.vector.app.core.platform.OnBackPressed
 import im.vector.app.core.platform.VectorBaseFragment
-import im.vector.app.core.resources.ColorProvider
-import im.vector.app.core.resources.DrawableProvider
+import im.vector.app.core.platform.VectorMenuProvider
 import im.vector.app.core.utils.toast
 import im.vector.app.databinding.FragmentRoomSettingGenericBinding
 import im.vector.app.features.home.AvatarRenderer
@@ -49,6 +41,9 @@ import im.vector.app.features.roomprofile.settings.RoomSettingsViewModel
 import im.vector.app.features.roomprofile.settings.RoomSettingsViewState
 import im.vector.app.features.roomprofile.settings.joinrule.RoomJoinRuleActivity
 import im.vector.app.features.roomprofile.settings.joinrule.RoomJoinRuleSharedActionViewModel
+import im.vector.lib.strings.CommonStrings
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import org.matrix.android.sdk.api.session.room.model.GuestAccess
 import org.matrix.android.sdk.api.session.room.model.RoomHistoryVisibility
 import org.matrix.android.sdk.api.session.room.model.RoomJoinRules
@@ -56,24 +51,24 @@ import org.matrix.android.sdk.api.util.toMatrixItem
 import java.util.UUID
 import javax.inject.Inject
 
-class SpaceSettingsFragment @Inject constructor(
-        private val epoxyController: SpaceSettingsController,
-        private val colorProvider: ColorProvider,
-        val viewModelFactory: RoomSettingsViewModel.Factory,
-        private val avatarRenderer: AvatarRenderer,
-        private val drawableProvider: DrawableProvider
-) : VectorBaseFragment<FragmentRoomSettingGenericBinding>(),
-        RoomSettingsViewModel.Factory,
+@AndroidEntryPoint
+class SpaceSettingsFragment :
+        VectorBaseFragment<FragmentRoomSettingGenericBinding>(),
         SpaceSettingsController.Callback,
         GalleryOrCameraDialogHelper.Listener,
-        OnBackPressed {
+        OnBackPressed,
+        VectorMenuProvider {
+
+    @Inject lateinit var epoxyController: SpaceSettingsController
+    @Inject lateinit var galleryOrCameraDialogHelperFactory: GalleryOrCameraDialogHelperFactory
+    @Inject lateinit var avatarRenderer: AvatarRenderer
 
     private val viewModel: RoomSettingsViewModel by fragmentViewModel()
     private val sharedViewModel: SpaceManageSharedViewModel by activityViewModel()
 
     private lateinit var roomJoinRuleSharedActionViewModel: RoomJoinRuleSharedActionViewModel
 
-    private val galleryOrCameraDialogHelper = GalleryOrCameraDialogHelper(this, colorProvider)
+    private lateinit var galleryOrCameraDialogHelper: GalleryOrCameraDialogHelper
 
     override fun getBinding(inflater: LayoutInflater, container: ViewGroup?) = FragmentRoomSettingGenericBinding.inflate(inflater)
 
@@ -81,19 +76,21 @@ class SpaceSettingsFragment @Inject constructor(
 
     override fun getMenuRes() = R.menu.vector_room_settings
 
-    override fun create(initialState: RoomSettingsViewState): RoomSettingsViewModel {
-        return viewModelFactory.create(initialState)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        galleryOrCameraDialogHelper = galleryOrCameraDialogHelperFactory.create(this)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupToolbar(views.roomSettingsToolbar)
+                .allowBack()
         // roomProfileSharedActionViewModel = activityViewModelProvider.get(RoomProfileSharedActionViewModel::class.java)
 //        setupRoomHistoryVisibilitySharedActionViewModel()
         setupRoomJoinRuleSharedActionViewModel()
         epoxyController.callback = this
         views.roomSettingsRecyclerView.configureWith(epoxyController, hasFixedSize = true)
-        views.waitingView.waitingStatusText.setText(R.string.please_wait)
+        views.waitingView.waitingStatusText.setText(CommonStrings.please_wait)
         views.waitingView.waitingStatusText.isVisible = true
 
         viewModel.observeViewEvents {
@@ -102,9 +99,10 @@ class SpaceSettingsFragment @Inject constructor(
                 RoomSettingsViewEvents.Success -> showSuccess()
                 RoomSettingsViewEvents.GoBack -> {
                     ignoreChanges = true
+                    @Suppress("DEPRECATION")
                     vectorBaseActivity.onBackPressed()
                 }
-            }.exhaustive
+            }
         }
     }
 
@@ -114,18 +112,20 @@ class SpaceSettingsFragment @Inject constructor(
         super.onDestroyView()
     }
 
-    override fun onPrepareOptionsMenu(menu: Menu) {
+    override fun handlePrepareMenu(menu: Menu) {
         withState(viewModel) { state ->
             menu.findItem(R.id.roomSettingsSaveAction).isVisible = state.showSaveAction
         }
-        super.onPrepareOptionsMenu(menu)
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.roomSettingsSaveAction) {
-            viewModel.handle(RoomSettingsAction.Save)
+    override fun handleMenuItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.roomSettingsSaveAction -> {
+                viewModel.handle(RoomSettingsAction.Save)
+                true
+            }
+            else -> false
         }
-        return super.onOptionsItemSelected(item)
     }
 
     private fun renderRoomSummary(state: RoomSettingsViewState) {
@@ -148,11 +148,11 @@ class SpaceSettingsFragment @Inject constructor(
     private fun setupRoomJoinRuleSharedActionViewModel() {
         roomJoinRuleSharedActionViewModel = activityViewModelProvider.get(RoomJoinRuleSharedActionViewModel::class.java)
         roomJoinRuleSharedActionViewModel
-                .observe()
-                .subscribe { action ->
+                .stream()
+                .onEach { action ->
                     viewModel.handle(RoomSettingsAction.SetRoomJoinRule(action.roomJoinRule))
                 }
-                .disposeOnDestroyView()
+                .launchIn(viewLifecycleOwner.lifecycleScope)
     }
 
     private var ignoreChanges = false
@@ -163,12 +163,12 @@ class SpaceSettingsFragment @Inject constructor(
         return withState(viewModel) {
             return@withState if (it.showSaveAction) {
                 MaterialAlertDialogBuilder(requireContext())
-                        .setTitle(R.string.dialog_title_warning)
-                        .setMessage(R.string.warning_unsaved_change)
-                        .setPositiveButton(R.string.warning_unsaved_change_discard) { _, _ ->
+                        .setTitle(CommonStrings.dialog_title_warning)
+                        .setMessage(CommonStrings.warning_unsaved_change)
+                        .setPositiveButton(CommonStrings.warning_unsaved_change_discard) { _, _ ->
                             viewModel.handle(RoomSettingsAction.Cancel)
                         }
-                        .setNegativeButton(R.string.cancel, null)
+                        .setNegativeButton(CommonStrings.action_cancel, null)
                         .show()
                 true
             } else {
@@ -178,7 +178,7 @@ class SpaceSettingsFragment @Inject constructor(
     }
 
     private fun showSuccess() {
-        activity?.toast(R.string.room_settings_save_success)
+        activity?.toast(CommonStrings.room_settings_save_success)
     }
 
     override fun onNameChanged(name: String) {
@@ -239,7 +239,8 @@ class SpaceSettingsFragment @Inject constructor(
                 RoomSettingsAction.SetAvatarAction(
                         RoomSettingsViewState.AvatarAction.UpdateAvatar(
                                 newAvatarUri = uri,
-                                newAvatarFileName = getFilenameFromUri(requireContext(), uri) ?: UUID.randomUUID().toString())
+                                newAvatarFileName = getFilenameFromUri(requireContext(), uri) ?: UUID.randomUUID().toString()
+                        )
                 )
         )
     }

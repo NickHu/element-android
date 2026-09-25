@@ -1,17 +1,8 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.features.home.room.detail.timeline.item
 
@@ -31,16 +22,17 @@ import com.airbnb.epoxy.EpoxyModelClass
 import im.vector.app.R
 import im.vector.app.core.epoxy.ClickListener
 import im.vector.app.core.epoxy.onClick
-import im.vector.app.core.extensions.exhaustive
 import im.vector.app.features.home.AvatarRenderer
 import im.vector.app.features.home.room.detail.RoomDetailAction
 import im.vector.app.features.home.room.detail.timeline.MessageColorProvider
 import im.vector.app.features.home.room.detail.timeline.TimelineEventController
-import org.matrix.android.sdk.api.crypto.VerificationState
+import im.vector.lib.core.utils.timer.Clock
+import im.vector.lib.strings.CommonStrings
 import org.matrix.android.sdk.api.session.crypto.verification.VerificationService
+import org.matrix.android.sdk.api.session.crypto.verification.VerificationState
 
-@EpoxyModelClass(layout = R.layout.item_timeline_event_base_state)
-abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestItem.Holder>() {
+@EpoxyModelClass
+abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestItem.Holder>(R.layout.item_timeline_event_base_state) {
 
     override val baseAttributes: AbsBaseMessageItem.Attributes
         get() = attributes
@@ -49,9 +41,12 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
     lateinit var attributes: Attributes
 
     @EpoxyAttribute
+    lateinit var clock: Clock
+
+    @EpoxyAttribute
     var callback: TimelineEventController.Callback? = null
 
-    override fun getViewType() = STUB_ID
+    override fun getViewStubId() = STUB_ID
 
     @SuppressLint("SetTextI18n")
     override fun bind(holder: Holder) {
@@ -62,9 +57,9 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
         }
 
         holder.titleView.text = if (attributes.informationData.sentByMe) {
-            holder.view.context.getString(R.string.verification_sent)
+            holder.view.context.getString(CommonStrings.verification_sent)
         } else {
-            holder.view.context.getString(R.string.verification_request)
+            holder.view.context.getString(CommonStrings.verification_request)
         }
 
         holder.descriptionView.text = if (!attributes.informationData.sentByMe) {
@@ -75,7 +70,7 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
 
         when (attributes.informationData.referencesInfoData?.verificationStatus) {
             VerificationState.REQUEST,
-            null                                -> {
+            null -> {
                 holder.buttonBar.isVisible = !attributes.informationData.sentByMe
                 holder.statusTextView.text = null
                 holder.statusTextView.isVisible = false
@@ -83,32 +78,32 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
             VerificationState.CANCELED_BY_OTHER -> {
                 holder.buttonBar.isVisible = false
                 holder.statusTextView.text = holder.view.context
-                        .getString(R.string.verification_request_other_cancelled, attributes.informationData.memberName)
+                        .getString(CommonStrings.verification_request_other_cancelled, attributes.informationData.memberName)
                 holder.statusTextView.isVisible = true
             }
-            VerificationState.CANCELED_BY_ME    -> {
+            VerificationState.CANCELED_BY_ME -> {
                 holder.buttonBar.isVisible = false
-                holder.statusTextView.text = holder.view.context.getString(R.string.verification_request_you_cancelled)
+                holder.statusTextView.text = holder.view.context.getString(CommonStrings.verification_request_you_cancelled)
                 holder.statusTextView.isVisible = true
             }
-            VerificationState.WAITING           -> {
+            VerificationState.WAITING -> {
                 holder.buttonBar.isVisible = false
-                holder.statusTextView.text = holder.view.context.getString(R.string.verification_request_waiting)
+                holder.statusTextView.text = holder.view.context.getString(CommonStrings.verification_request_waiting)
                 holder.statusTextView.isVisible = true
             }
-            VerificationState.DONE              -> {
+            VerificationState.DONE -> {
                 holder.buttonBar.isVisible = false
                 holder.statusTextView.text = if (attributes.informationData.sentByMe) {
-                    holder.view.context.getString(R.string.verification_request_other_accepted, attributes.otherUserName)
+                    holder.view.context.getString(CommonStrings.verification_request_other_accepted, attributes.otherUserName)
                 } else {
-                    holder.view.context.getString(R.string.verification_request_you_accepted)
+                    holder.view.context.getString(CommonStrings.verification_request_you_accepted)
                 }
                 holder.statusTextView.isVisible = true
             }
-        }.exhaustive
+        }
 
         // Always hide buttons if request is too old
-        if (!VerificationService.isValidRequest(attributes.informationData.ageLocalTS)) {
+        if (!VerificationService.isValidRequest(attributes.informationData.ageLocalTS, clock.epochMillis())) {
             holder.buttonBar.isVisible = false
         }
 
@@ -134,7 +129,7 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
     }
 
     companion object {
-        private const val STUB_ID = R.id.messageVerificationRequestStub
+        private val STUB_ID = R.id.messageVerificationRequestStub
     }
 
     /**
@@ -154,6 +149,7 @@ abstract class VerificationRequestItem : AbsBaseMessageItem<VerificationRequestI
             override val reactionPillCallback: TimelineEventController.ReactionPillCallback? = null,
 //            val avatarCallback: TimelineEventController.AvatarCallback? = null,
             override val readReceiptsCallback: TimelineEventController.ReadReceiptsCallback? = null,
-            val emojiTypeFace: Typeface? = null
+            override val reactionsSummaryEvents: ReactionsSummaryEvents? = null,
+            val emojiTypeFace: Typeface? = null,
     ) : AbsBaseMessageItem.Attributes
 }

@@ -1,17 +1,8 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.core.ui.list
 
@@ -30,6 +21,7 @@ import im.vector.app.core.epoxy.VectorEpoxyModel
 import im.vector.app.core.epoxy.onClick
 import im.vector.app.core.extensions.setTextOrHide
 import im.vector.app.features.themes.ThemeUtils
+import im.vector.lib.core.utils.epoxy.charsequence.EpoxyCharSequence
 
 /**
  * A generic list item.
@@ -37,14 +29,14 @@ import im.vector.app.features.themes.ThemeUtils
  * Can display an accessory on the right, that can be an image or an indeterminate progress.
  * If provided with an action, will display a button at the bottom of the list item.
  */
-@EpoxyModelClass(layout = R.layout.item_generic_with_value)
-abstract class GenericWithValueItem : VectorEpoxyModel<GenericWithValueItem.Holder>() {
+@EpoxyModelClass
+abstract class GenericWithValueItem : VectorEpoxyModel<GenericWithValueItem.Holder>(R.layout.item_generic_with_value) {
 
     @EpoxyAttribute
-    var title: CharSequence? = null
+    var title: EpoxyCharSequence? = null
 
     @EpoxyAttribute
-    var value: CharSequence? = null
+    var value: String? = null
 
     @EpoxyAttribute
     @ColorInt
@@ -62,7 +54,7 @@ abstract class GenericWithValueItem : VectorEpoxyModel<GenericWithValueItem.Hold
 
     override fun bind(holder: Holder) {
         super.bind(holder)
-        holder.titleText.setTextOrHide(title)
+        holder.titleText.setTextOrHide(title?.charSequence)
 
         if (titleIconResourceId != -1) {
             holder.titleIcon.setImageResource(titleIconResourceId)
@@ -76,7 +68,7 @@ abstract class GenericWithValueItem : VectorEpoxyModel<GenericWithValueItem.Hold
         if (valueColorInt != null) {
             holder.valueText.setTextColor(valueColorInt!!)
         } else {
-            holder.valueText.setTextColor(ThemeUtils.getColor(holder.view.context, R.attr.vctr_content_primary))
+            holder.valueText.setTextColor(ThemeUtils.getColor(holder.view.context, im.vector.lib.ui.styles.R.attr.vctr_content_primary))
         }
 
         holder.view.onClick(itemClickAction)

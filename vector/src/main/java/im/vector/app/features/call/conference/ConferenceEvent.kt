@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.call.conference
@@ -20,11 +11,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.facebook.react.bridge.JavaOnlyMap
+import im.vector.app.config.Config
 import org.jitsi.meet.sdk.BroadcastEmitter
 import org.jitsi.meet.sdk.BroadcastEvent
 import org.jitsi.meet.sdk.JitsiMeet
@@ -36,13 +27,14 @@ sealed class ConferenceEvent(open val data: Map<String, Any>) {
     data class Terminated(override val data: Map<String, Any>) : ConferenceEvent(data)
     data class WillJoin(override val data: Map<String, Any>) : ConferenceEvent(data)
     data class Joined(override val data: Map<String, Any>) : ConferenceEvent(data)
+    object ReadyToClose : ConferenceEvent(emptyMap())
 
     fun extractConferenceUrl(): String? {
         return data[CONFERENCE_URL_DATA_KEY] as? String
     }
 }
 
-class ConferenceEventEmitter(private val context: Context)  {
+class ConferenceEventEmitter(private val context: Context) {
 
     fun emitConferenceEnded() {
         val broadcastEventData = JavaOnlyMap.of(CONFERENCE_URL_DATA_KEY, JitsiMeet.getCurrentConference())
@@ -50,9 +42,11 @@ class ConferenceEventEmitter(private val context: Context)  {
     }
 }
 
-class ConferenceEventObserver(private val context: Context,
-                              private val onBroadcastEvent: (ConferenceEvent) -> Unit)
-    : LifecycleObserver {
+class ConferenceEventObserver(
+        private val context: Context,
+        private val onBroadcastEvent: (ConferenceEvent) -> Unit
+) :
+        DefaultLifecycleObserver {
 
     // See https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-android-sdk#listening-for-broadcasted-events
     private val broadcastReceiver = object : BroadcastReceiver() {
@@ -61,8 +55,7 @@ class ConferenceEventObserver(private val context: Context,
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-    fun unregisterForBroadcastMessages() {
+    override fun onDestroy(owner: LifecycleOwner) {
         try {
             LocalBroadcastManager.getInstance(context).unregisterReceiver(broadcastReceiver)
         } catch (throwable: Throwable) {
@@ -70,8 +63,7 @@ class ConferenceEventObserver(private val context: Context,
         }
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_CREATE)
-    fun registerForBroadcastMessages() {
+    override fun onCreate(owner: LifecycleOwner) {
         val intentFilter = IntentFilter()
         for (type in BroadcastEvent.Type.values()) {
             intentFilter.addAction(type.action)
@@ -85,14 +77,24 @@ class ConferenceEventObserver(private val context: Context,
 
     private fun onBroadcastReceived(intent: Intent) {
         val event = BroadcastEvent(intent)
+        safeLog("onBroadcastReceived: Event received (type ${event.type})", event.data)
         val conferenceEvent = when (event.type) {
-            BroadcastEvent.Type.CONFERENCE_JOINED     -> ConferenceEvent.Joined(event.data)
+            BroadcastEvent.Type.CONFERENCE_JOINED -> ConferenceEvent.Joined(event.data)
             BroadcastEvent.Type.CONFERENCE_TERMINATED -> ConferenceEvent.Terminated(event.data)
-            BroadcastEvent.Type.CONFERENCE_WILL_JOIN  -> ConferenceEvent.WillJoin(event.data)
-            else                                      -> null
+            BroadcastEvent.Type.CONFERENCE_WILL_JOIN -> ConferenceEvent.WillJoin(event.data)
+            BroadcastEvent.Type.READY_TO_CLOSE -> ConferenceEvent.ReadyToClose
+            else -> null
         }
         if (conferenceEvent != null) {
             onBroadcastEvent(conferenceEvent)
+        }
+    }
+
+    private fun safeLog(message: String, sensitiveData: Any?) {
+        if (Config.LOW_PRIVACY_LOG_ENABLE) {
+            Timber.v("$message: $sensitiveData")
+        } else {
+            Timber.v(message)
         }
     }
 }

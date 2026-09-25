@@ -1,23 +1,14 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.roomprofile.notifications
 
 import com.airbnb.mvrx.Async
-import com.airbnb.mvrx.MvRxState
+import com.airbnb.mvrx.MavericksState
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
 import im.vector.app.features.home.room.list.actions.RoomListActionsArgs
@@ -30,7 +21,7 @@ data class RoomNotificationSettingsViewState(
         val roomSummary: Async<RoomSummary> = Uninitialized,
         val isLoading: Boolean = false,
         val notificationState: Async<RoomNotificationState> = Uninitialized
-)  : MvRxState {
+) : MavericksState {
     constructor(args: RoomProfileArgs) : this(roomId = args.roomId)
     constructor(args: RoomListActionsArgs) : this(roomId = args.roomId)
 }
@@ -40,15 +31,18 @@ data class RoomNotificationSettingsViewState(
  */
 val RoomNotificationSettingsViewState.notificationStateMapped: Async<RoomNotificationState>
     get() {
-        if ((roomSummary()?.isEncrypted == true && notificationState() == RoomNotificationState.MENTIONS_ONLY)
-                || notificationState() == RoomNotificationState.ALL_MESSAGES) {
-            /** if in an encrypted room, mentions notifications are not supported so show "All Messages" as selected.
+        return when {
+            /**
+             * if in an encrypted room, mentions notifications are not supported so show "None" as selected.
              * Also in the new settings there is no notion of notifications without sound so it maps to noisy also
              */
-            return Success(RoomNotificationState.ALL_MESSAGES_NOISY)
+            (roomSummary()?.isEncrypted == true && notificationState() == RoomNotificationState.MENTIONS_ONLY)
+            -> Success(RoomNotificationState.MUTE)
+            notificationState() == RoomNotificationState.ALL_MESSAGES -> Success(RoomNotificationState.ALL_MESSAGES_NOISY)
+            else -> notificationState
         }
-        return  notificationState
     }
+
 /**
  * Used to enumerate the new settings in notification settings v2. Notifications without sound and mentions in encrypted rooms not supported.
  */

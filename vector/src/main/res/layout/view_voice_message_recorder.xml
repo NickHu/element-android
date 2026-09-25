@@ -8,12 +8,22 @@
     android:minHeight="200dp">
 
     <View
+        android:id="@+id/voiceMessageBackgroundView"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/composer_min_height"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:background="?android:colorBackground" />
+
+    <View
         android:id="@+id/voiceMessageLockBackground"
-        android:layout_width="78dp"
+        android:layout_width="52dp"
         android:layout_height="180dp"
         android:background="@drawable/bg_voice_message_lock"
         android:backgroundTint="?vctr_system"
         android:visibility="gone"
+        android:layout_marginEnd="12dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toBottomOf="@id/voiceMessageMicButton"
         tools:translationY="-180dp"
@@ -23,20 +33,22 @@
         android:id="@+id/voiceMessageMicButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:minWidth="32dp"
+        android:minHeight="32dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="16dp"
         android:background="?android:attr/selectableItemBackground"
         android:contentDescription="@string/a11y_start_voice_message"
-        android:src="@drawable/ic_voice_mic"
+        android:src="@drawable/ic_microphone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
     <ImageButton
         android:id="@+id/voiceMessageSendButton"
         android:layout_width="56dp"
-        android:layout_height="56dp"
+        android:layout_height="@dimen/composer_min_height"
         android:background="@drawable/bg_send"
-        android:contentDescription="@string/send"
+        android:contentDescription="@string/action_send"
         android:scaleType="center"
         android:src="@drawable/ic_send"
         android:visibility="gone"
@@ -95,9 +107,9 @@
 
     <!-- Slide to cancel text should go under this view -->
     <View
+        android:id="@+id/voiceMessageSlideToCancelDivider"
         android:layout_width="48dp"
         android:layout_height="0dp"
-        android:background="?android:colorBackground"
         app:layout_constraintBottom_toBottomOf="@id/voiceMessageTimer"
         app:layout_constraintStart_toEndOf="@id/voiceMessageTimer"
         app:layout_constraintTop_toTopOf="@id/voiceMessageTimer" />
@@ -106,8 +118,8 @@
         android:id="@+id/voiceMessageLockImage"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="28dp"
-        android:contentDescription="@string/a11y_lock_voice_message"
+        android:layout_marginTop="16dp"
+        android:importantForAccessibility="no"
         android:src="@drawable/ic_voice_message_unlocked"
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="@id/voiceMessageMicButton"
@@ -120,7 +132,6 @@
         android:id="@+id/voiceMessageLockArrow"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="4dp"
         android:layout_marginBottom="14dp"
         android:importantForAccessibility="no"
         android:src="@drawable/ic_voice_lock_arrow"
@@ -135,11 +146,10 @@
         android:id="@+id/voiceMessagePlaybackLayout"
         android:layout_width="0dp"
         android:layout_height="44dp"
-        android:layout_marginEnd="16dp"
         android:layout_marginBottom="4dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/voiceMessageMicButton"
+        app:layout_constraintEnd_toStartOf="@id/voiceMessageSendButton"
         app:layout_constraintStart_toStartOf="parent"
         tools:layout_marginBottom="120dp"
         tools:visibility="visible">
@@ -160,7 +170,7 @@
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:background="@drawable/bg_voice_playback"
+            android:background="@drawable/bg_media_pill"
             android:backgroundTint="?vctr_content_quinary"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
@@ -208,13 +218,15 @@
                 app:layout_goneMarginStart="24dp"
                 tools:text="0:23" />
 
-            <com.visualizer.amplitude.AudioRecordView
+            <im.vector.app.features.voice.AudioWaveformView
                 android:id="@+id/voicePlaybackWaveform"
                 style="@style/VoicePlaybackWaveform"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
+                android:contentDescription="@string/a11y_stop_voice_message"
+                android:importantForAccessibility="no"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/voicePlaybackTime"
@@ -230,6 +242,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="84dp"
+        android:accessibilityLiveRegion="polite"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"

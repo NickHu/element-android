@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail
@@ -25,15 +16,16 @@ import com.airbnb.mvrx.Loading
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
 import com.airbnb.mvrx.parentFragmentViewModel
-import im.vector.app.R
-import im.vector.app.core.di.ScreenComponent
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.core.epoxy.ClickListener
 import im.vector.app.core.error.ErrorFormatter
 import im.vector.app.core.platform.ButtonStateView
 import im.vector.app.core.platform.VectorBaseBottomSheetDialogFragment
 import im.vector.app.databinding.BottomSheetTombstoneJoinBinding
+import im.vector.lib.strings.CommonStrings
 import javax.inject.Inject
 
+@AndroidEntryPoint
 class JoinReplacementRoomBottomSheet :
         VectorBaseBottomSheetDialogFragment<BottomSheetTombstoneJoinBinding>() {
 
@@ -43,11 +35,7 @@ class JoinReplacementRoomBottomSheet :
     @Inject
     lateinit var errorFormatter: ErrorFormatter
 
-    override fun injectWith(injector: ScreenComponent) {
-        injector.inject(this)
-    }
-
-    private val viewModel: RoomDetailViewModel by parentFragmentViewModel()
+    private val viewModel: TimelineViewModel by parentFragmentViewModel()
 
     override val showExpanded: Boolean
         get() = true
@@ -61,19 +49,19 @@ class JoinReplacementRoomBottomSheet :
             }
         }
 
-        viewModel.selectSubscribe(this, RoomDetailViewState::joinUpgradedRoomAsync) { joinState ->
+        viewModel.onEach(RoomDetailViewState::joinUpgradedRoomAsync) { joinState ->
             when (joinState) {
                 // it should never be Uninitialized
                 Uninitialized,
-                is Loading    -> {
+                is Loading -> {
                     views.roomUpgradeButton.render(ButtonStateView.State.Loading)
-                    views.descriptionText.setText(R.string.it_may_take_some_time)
+                    views.descriptionText.setText(CommonStrings.it_may_take_some_time)
                 }
-                is Success    -> {
+                is Success -> {
                     views.roomUpgradeButton.render(ButtonStateView.State.Loaded)
                     dismiss()
                 }
-                is Fail       -> {
+                is Fail -> {
                     // display the error message
                     views.descriptionText.text = errorFormatter.toHumanReadable(joinState.error)
                     views.roomUpgradeButton.render(ButtonStateView.State.Error)

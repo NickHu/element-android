@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.leave
@@ -19,44 +10,36 @@ package im.vector.app.features.spaces.leave
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import com.airbnb.mvrx.Fail
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRx
+import com.airbnb.mvrx.Mavericks
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.viewModel
-import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import im.vector.app.R
-import im.vector.app.core.di.ScreenComponent
-import im.vector.app.core.error.ErrorFormatter
-import im.vector.app.core.extensions.commitTransaction
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.core.extensions.hideKeyboard
+import im.vector.app.core.extensions.replaceFragment
 import im.vector.app.core.extensions.setTextOrHide
-import im.vector.app.core.platform.ToolbarConfigurable
 import im.vector.app.core.platform.VectorBaseActivity
 import im.vector.app.databinding.ActivitySimpleLoadingBinding
 import im.vector.app.features.spaces.SpaceBottomSheetSettingsArgs
-import javax.inject.Inject
+import im.vector.lib.core.utils.compat.getParcelableExtraCompat
+import im.vector.lib.strings.CommonStrings
 
-class SpaceLeaveAdvancedActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
-        SpaceLeaveAdvancedViewModel.Factory,
-        ToolbarConfigurable {
+@AndroidEntryPoint
+class SpaceLeaveAdvancedActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>() {
 
     override fun getBinding(): ActivitySimpleLoadingBinding = ActivitySimpleLoadingBinding.inflate(layoutInflater)
 
-    val leaveViewModel: SpaceLeaveAdvancedViewModel by viewModel()
+    override fun getCoordinatorLayout() = views.coordinatorLayout
 
-    @Inject lateinit var viewModelFactory: SpaceLeaveAdvancedViewModel.Factory
-    @Inject lateinit var errorFormatter: ErrorFormatter
+    override val rootView: View
+        get() = views.coordinatorLayout
 
-    override fun create(initialState: SpaceLeaveAdvanceViewState) = viewModelFactory.create(initialState)
-
-    override fun injectWith(injector: ScreenComponent) {
-        super.injectWith(injector)
-        injector.inject(this)
-    }
+    private val leaveViewModel: SpaceLeaveAdvancedViewModel by viewModel()
 
     override fun showWaitingView(text: String?) {
         hideKeyboard()
@@ -74,27 +57,21 @@ class SpaceLeaveAdvancedActivity : VectorBaseActivity<ActivitySimpleLoadingBindi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val args = intent?.getParcelableExtra<SpaceBottomSheetSettingsArgs>(MvRx.KEY_ARG)
+        val args = intent?.getParcelableExtraCompat<SpaceBottomSheetSettingsArgs>(Mavericks.KEY_ARG)
 
         if (isFirstCreation()) {
-            val simpleName = SpaceLeaveAdvancedFragment::class.java.simpleName
-            if (supportFragmentManager.findFragmentByTag(simpleName) == null) {
-                supportFragmentManager.commitTransaction {
-                    replace(
-                            R.id.simpleFragmentContainer,
-                            SpaceLeaveAdvancedFragment::class.java,
-                            Bundle().apply { this.putParcelable(MvRx.KEY_ARG, args) },
-                            simpleName
-                    )
-                }
-            }
+            replaceFragment(
+                    views.simpleFragmentContainer,
+                    SpaceLeaveAdvancedFragment::class.java,
+                    args
+            )
         }
     }
 
     override fun initUiAndData() {
         super.initUiAndData()
         waitingView = views.waitingView.waitingView
-        leaveViewModel.subscribe(this) { state ->
+        leaveViewModel.onEach { state ->
             when (state.leaveState) {
                 is Loading -> {
                     showWaitingView()
@@ -103,17 +80,17 @@ class SpaceLeaveAdvancedActivity : VectorBaseActivity<ActivitySimpleLoadingBindi
                     setResult(RESULT_OK)
                     finish()
                 }
-                is Fail    -> {
+                is Fail -> {
                     hideWaitingView()
                     MaterialAlertDialogBuilder(this)
-                            .setTitle(R.string.dialog_title_error)
+                            .setTitle(CommonStrings.dialog_title_error)
                             .setMessage(errorFormatter.toHumanReadable(state.leaveState.error))
-                            .setPositiveButton(R.string.ok) { _, _ ->
+                            .setPositiveButton(CommonStrings.ok) { _, _ ->
                                 leaveViewModel.handle(SpaceLeaveAdvanceViewAction.ClearError)
                             }
                             .show()
                 }
-                else       -> {
+                else -> {
                     hideWaitingView()
                 }
             }
@@ -123,12 +100,8 @@ class SpaceLeaveAdvancedActivity : VectorBaseActivity<ActivitySimpleLoadingBindi
     companion object {
         fun newIntent(context: Context, spaceId: String): Intent {
             return Intent(context, SpaceLeaveAdvancedActivity::class.java).apply {
-                putExtra(MvRx.KEY_ARG, SpaceBottomSheetSettingsArgs(spaceId))
+                putExtra(Mavericks.KEY_ARG, SpaceBottomSheetSettingsArgs(spaceId))
             }
         }
-    }
-
-    override fun configure(toolbar: MaterialToolbar) {
-        configureToolbar(toolbar)
     }
 }

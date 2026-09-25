@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.upgrade
@@ -20,6 +11,7 @@ import im.vector.app.core.platform.ViewModelTask
 import im.vector.app.core.resources.StringProvider
 import org.matrix.android.sdk.api.extensions.tryOrNull
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoom
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -49,12 +41,12 @@ class UpgradeRoomViewModelTask @Inject constructor(
 
         val room = session.getRoom(params.roomId)
                 ?: return Result.UnknownRoom
-        if (!room.userMayUpgradeRoom(session.myUserId)) {
+        if (!room.roomVersionService().userMayUpgradeRoom(session.myUserId)) {
             return Result.NotAllowed
         }
 
         val updatedRoomId = try {
-            room.upgradeToVersion(params.newVersion)
+            room.roomVersionService().upgradeToVersion(params.newVersion)
         } catch (failure: Throwable) {
             return Result.ErrorFailure(failure)
         }
@@ -64,7 +56,7 @@ class UpgradeRoomViewModelTask @Inject constructor(
         params.userIdsToAutoInvite.forEach {
             params.progressReporter?.invoke(false, currentStep, totalStep)
             tryOrNull {
-                session.getRoom(updatedRoomId)?.invite(it)
+                session.getRoom(updatedRoomId)?.membershipService()?.invite(it)
             }
             currentStep++
         }
@@ -83,8 +75,6 @@ class UpgradeRoomViewModelTask @Inject constructor(
 //                                autoJoin = currentInfo.autoJoin ?: false,
                                 suggested = currentInfo.suggested
                         )
-
-                        parentSpace.removeChildren(params.roomId)
                     }
                 }
             } catch (failure: Throwable) {

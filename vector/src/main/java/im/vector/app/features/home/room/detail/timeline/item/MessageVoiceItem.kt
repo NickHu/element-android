@@ -1,40 +1,40 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.timeline.item
 
+import android.content.res.ColorStateList
+import android.graphics.Color
 import android.text.format.DateUtils
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
 import com.airbnb.epoxy.EpoxyAttribute
 import com.airbnb.epoxy.EpoxyModelClass
-import com.visualizer.amplitude.AudioRecordView
 import im.vector.app.R
 import im.vector.app.core.epoxy.ClickListener
+import im.vector.app.features.home.room.detail.timeline.helper.AudioMessagePlaybackTracker
 import im.vector.app.features.home.room.detail.timeline.helper.ContentDownloadStateTrackerBinder
 import im.vector.app.features.home.room.detail.timeline.helper.ContentUploadStateTrackerBinder
-import im.vector.app.features.home.room.detail.timeline.helper.VoiceMessagePlaybackTracker
+import im.vector.app.features.home.room.detail.timeline.style.TimelineMessageLayout
+import im.vector.app.features.themes.ThemeUtils
+import im.vector.app.features.voice.AudioWaveformView
+import im.vector.lib.strings.CommonStrings
 
-@EpoxyModelClass(layout = R.layout.item_timeline_event_base)
+@EpoxyModelClass
 abstract class MessageVoiceItem : AbsMessageItem<MessageVoiceItem.Holder>() {
 
-    init {
-        ignoreSendStatusVisibility = true
+    interface WaveformTouchListener {
+        fun onWaveformTouchedUp(percentage: Float)
+        fun onWaveformMovedTo(percentage: Float)
     }
 
     @EpoxyAttribute
@@ -50,9 +50,6 @@ abstract class MessageVoiceItem : AbsMessageItem<MessageVoiceItem.Holder>() {
     var izLocalFile = false
 
     @EpoxyAttribute
-    var izDownloaded = false
-
-    @EpoxyAttribute
     lateinit var contentUploadStateTrackerBinder: ContentUploadStateTrackerBinder
 
     @EpoxyAttribute
@@ -61,8 +58,11 @@ abstract class MessageVoiceItem : AbsMessageItem<MessageVoiceItem.Holder>() {
     @EpoxyAttribute(EpoxyAttribute.Option.DoNotHash)
     var playbackControlButtonClickListener: ClickListener? = null
 
+    @EpoxyAttribute(EpoxyAttribute.Option.DoNotHash)
+    var waveformTouchListener: WaveformTouchListener? = null
+
     @EpoxyAttribute
-    lateinit var voiceMessagePlaybackTracker: VoiceMessagePlaybackTracker
+    lateinit var audioMessagePlaybackTracker: AudioMessagePlaybackTracker
 
     override fun bind(holder: Holder) {
         super.bind(holder)
@@ -71,48 +71,81 @@ abstract class MessageVoiceItem : AbsMessageItem<MessageVoiceItem.Holder>() {
             contentUploadStateTrackerBinder.bind(attributes.informationData.eventId, izLocalFile, holder.progressLayout)
         } else {
             holder.voicePlaybackControlButton.setImageResource(R.drawable.ic_cross)
-            holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(R.string.error_voice_message_unable_to_play)
+            holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(CommonStrings.error_voice_message_unable_to_play)
             holder.progressLayout.isVisible = false
         }
 
-        holder.voicePlaybackWaveform.setOnLongClickListener(attributes.itemLongClickListener)
-
-        holder.voicePlaybackWaveform.post {
-            holder.voicePlaybackWaveform.recreate()
-            waveform.forEach { amplitude ->
-                holder.voicePlaybackWaveform.update(amplitude)
-            }
+        holder.voicePlaybackWaveform.doOnPreDraw {
+            onWaveformViewReady(holder)
         }
 
+        val backgroundTint = if (attributes.informationData.messageLayout is TimelineMessageLayout.Bubble) {
+            Color.TRANSPARENT
+        } else {
+            ThemeUtils.getColor(holder.view.context, im.vector.lib.ui.styles.R.attr.vctr_content_quinary)
+        }
+        holder.voicePlaybackLayout.backgroundTintList = ColorStateList.valueOf(backgroundTint)
+    }
+
+    private fun onWaveformViewReady(holder: Holder) {
+        holder.voicePlaybackWaveform.setOnLongClickListener(attributes.itemLongClickListener)
         holder.voicePlaybackControlButton.setOnClickListener { playbackControlButtonClickListener?.invoke(it) }
 
-        voiceMessagePlaybackTracker.track(attributes.informationData.eventId, object : VoiceMessagePlaybackTracker.Listener {
-            override fun onUpdate(state: VoiceMessagePlaybackTracker.Listener.State) {
-                when (state) {
-                    is VoiceMessagePlaybackTracker.Listener.State.Idle    -> renderIdleState(holder)
-                    is VoiceMessagePlaybackTracker.Listener.State.Playing -> renderPlayingState(holder, state)
-                    is VoiceMessagePlaybackTracker.Listener.State.Paused  -> renderPausedState(holder, state)
+        val waveformColorIdle = ThemeUtils.getColor(holder.view.context, im.vector.lib.ui.styles.R.attr.vctr_content_quaternary)
+        val waveformColorPlayed = ThemeUtils.getColor(holder.view.context, im.vector.lib.ui.styles.R.attr.vctr_content_secondary)
+
+        holder.voicePlaybackWaveform.clear()
+        waveform.forEach { amplitude ->
+            holder.voicePlaybackWaveform.add(AudioWaveformView.FFT(amplitude.toFloat(), waveformColorIdle))
+        }
+        holder.voicePlaybackWaveform.summarize()
+
+        holder.voicePlaybackWaveform.setOnTouchListener { view, motionEvent ->
+            when (motionEvent.action) {
+                MotionEvent.ACTION_UP -> {
+                    val percentage = getTouchedPositionPercentage(motionEvent, view)
+                    waveformTouchListener?.onWaveformTouchedUp(percentage)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val percentage = getTouchedPositionPercentage(motionEvent, view)
+                    waveformTouchListener?.onWaveformMovedTo(percentage)
                 }
             }
-        })
+            true
+        }
+
+        audioMessagePlaybackTracker.track(attributes.informationData.eventId) { state ->
+            when (state) {
+                is AudioMessagePlaybackTracker.Listener.State.Error,
+                is AudioMessagePlaybackTracker.Listener.State.Idle -> renderIdleState(holder, waveformColorIdle, waveformColorPlayed)
+                is AudioMessagePlaybackTracker.Listener.State.Playing -> renderPlayingState(holder, state, waveformColorIdle, waveformColorPlayed)
+                is AudioMessagePlaybackTracker.Listener.State.Paused -> renderPausedState(holder, state, waveformColorIdle, waveformColorPlayed)
+                is AudioMessagePlaybackTracker.Listener.State.Recording -> Unit
+            }
+        }
     }
 
-    private fun renderIdleState(holder: Holder) {
+    private fun getTouchedPositionPercentage(motionEvent: MotionEvent, view: View) = (motionEvent.x / view.width).coerceIn(0f, 1f)
+
+    private fun renderIdleState(holder: Holder, idleColor: Int, playedColor: Int) {
         holder.voicePlaybackControlButton.setImageResource(R.drawable.ic_play_pause_play)
-        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(R.string.a11y_play_voice_message)
+        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(CommonStrings.a11y_play_voice_message)
         holder.voicePlaybackTime.text = formatPlaybackTime(duration)
+        holder.voicePlaybackWaveform.updateColors(0f, playedColor, idleColor)
     }
 
-    private fun renderPlayingState(holder: Holder, state: VoiceMessagePlaybackTracker.Listener.State.Playing) {
+    private fun renderPlayingState(holder: Holder, state: AudioMessagePlaybackTracker.Listener.State.Playing, idleColor: Int, playedColor: Int) {
         holder.voicePlaybackControlButton.setImageResource(R.drawable.ic_play_pause_pause)
-        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(R.string.a11y_pause_voice_message)
+        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(CommonStrings.a11y_pause_voice_message)
         holder.voicePlaybackTime.text = formatPlaybackTime(state.playbackTime)
+        holder.voicePlaybackWaveform.updateColors(state.percentage, playedColor, idleColor)
     }
 
-    private fun renderPausedState(holder: Holder, state: VoiceMessagePlaybackTracker.Listener.State.Paused) {
+    private fun renderPausedState(holder: Holder, state: AudioMessagePlaybackTracker.Listener.State.Paused, idleColor: Int, playedColor: Int) {
         holder.voicePlaybackControlButton.setImageResource(R.drawable.ic_play_pause_play)
-        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(R.string.a11y_play_voice_message)
+        holder.voicePlaybackControlButton.contentDescription = holder.view.context.getString(CommonStrings.a11y_play_voice_message)
         holder.voicePlaybackTime.text = formatPlaybackTime(state.playbackTime)
+        holder.voicePlaybackWaveform.updateColors(state.percentage, playedColor, idleColor)
     }
 
     private fun formatPlaybackTime(time: Int) = DateUtils.formatElapsedTime((time / 1000).toLong())
@@ -121,20 +154,21 @@ abstract class MessageVoiceItem : AbsMessageItem<MessageVoiceItem.Holder>() {
         super.unbind(holder)
         contentUploadStateTrackerBinder.unbind(attributes.informationData.eventId)
         contentDownloadStateTrackerBinder.unbind(mxcUrl)
-        voiceMessagePlaybackTracker.unTrack(attributes.informationData.eventId)
+        audioMessagePlaybackTracker.untrack(attributes.informationData.eventId)
     }
 
-    override fun getViewType() = STUB_ID
+    override fun getViewStubId() = STUB_ID
 
     class Holder : AbsMessageItem.Holder(STUB_ID) {
+        val voicePlaybackLayout by bind<View>(R.id.voicePlaybackLayout)
         val voiceLayout by bind<ViewGroup>(R.id.voiceLayout)
         val voicePlaybackControlButton by bind<ImageButton>(R.id.voicePlaybackControlButton)
         val voicePlaybackTime by bind<TextView>(R.id.voicePlaybackTime)
-        val voicePlaybackWaveform by bind<AudioRecordView>(R.id.voicePlaybackWaveform)
+        val voicePlaybackWaveform by bind<AudioWaveformView>(R.id.voicePlaybackWaveform)
         val progressLayout by bind<ViewGroup>(R.id.messageFileUploadProgressLayout)
     }
 
     companion object {
-        private const val STUB_ID = R.id.messageContentVoiceStub
+        private val STUB_ID = R.id.messageContentVoiceStub
     }
 }

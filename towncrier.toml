@@ -3,7 +3,7 @@
     filename = "CHANGES.md"
     name = "Changes in Element"
     template = "tools/towncrier/template.md"
-    issue_format = "[#{issue}](https://github.com/vector-im/element-android/issues/{issue})"
+    issue_format = "[#{issue}](https://github.com/element-hq/element-android/issues/{issue})"
 
     [[tool.towncrier.type]]
         directory = "feature"
@@ -16,12 +16,17 @@
         showcontent = true
 
     [[tool.towncrier.type]]
+        directory = "wip"
+        name = "In development 🚧"
+        showcontent = true
+
+    [[tool.towncrier.type]]
         directory = "doc"
         name = "Improved Documentation 📚"
         showcontent = true
 
     [[tool.towncrier.type]]
-        directory = "removal"
+        directory = "sdk"
         name = "SDK API changes ⚠️"
         showcontent = true
 

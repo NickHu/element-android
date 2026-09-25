@@ -1,17 +1,8 @@
 /*
- * Copyright 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.features.settings.devices
 
@@ -26,22 +17,27 @@ import im.vector.app.core.ui.list.genericFooterItem
 import im.vector.app.core.ui.list.genericItem
 import im.vector.app.core.ui.views.toDrawableRes
 import im.vector.app.features.crypto.verification.epoxy.bottomSheetVerificationActionItem
+import im.vector.app.features.settings.VectorPreferences
+import im.vector.lib.core.utils.epoxy.charsequence.toEpoxyCharSequence
+import im.vector.lib.strings.CommonStrings
 import org.matrix.android.sdk.api.extensions.orFalse
-import org.matrix.android.sdk.internal.crypto.model.CryptoDeviceInfo
+import org.matrix.android.sdk.api.session.crypto.model.CryptoDeviceInfo
 import timber.log.Timber
 import javax.inject.Inject
 
 class DeviceVerificationInfoBottomSheetController @Inject constructor(
         private val stringProvider: StringProvider,
-        private val colorProvider: ColorProvider)
-    : TypedEpoxyController<DeviceVerificationInfoBottomSheetViewState>() {
+        private val colorProvider: ColorProvider,
+        private val vectorPreferences: VectorPreferences
+) :
+        TypedEpoxyController<DeviceVerificationInfoBottomSheetViewState>() {
 
     var callback: Callback? = null
 
     override fun buildModels(data: DeviceVerificationInfoBottomSheetViewState?) {
         val cryptoDeviceInfo = data?.cryptoDeviceInfo?.invoke()
         when {
-            cryptoDeviceInfo != null           -> {
+            cryptoDeviceInfo != null -> {
                 // It's a E2E capable device
                 handleE2ECapableDevice(data, cryptoDeviceInfo)
             }
@@ -49,7 +45,7 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
                 // It's a non E2E capable device
                 handleNonE2EDevice(data)
             }
-            else                               -> {
+            else -> {
                 loadingItem {
                     id("loading")
                 }
@@ -88,8 +84,8 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
                     id("trust${cryptoDeviceInfo.deviceId}")
                     style(ItemStyle.BIG_TEXT)
                     titleIconResourceId(shield)
-                    title(host.stringProvider.getString(R.string.encryption_information_verified))
-                    description(host.stringProvider.getString(R.string.settings_active_sessions_verified_device_desc))
+                    title(host.stringProvider.getString(CommonStrings.encryption_information_verified).toEpoxyCharSequence())
+                    description(host.stringProvider.getString(CommonStrings.settings_active_sessions_verified_device_desc).toEpoxyCharSequence())
                 }
             } else if (data.canVerifySession) {
                 // You need to complete security, only if there are other session(s) available, or if 4S contains secrets
@@ -97,12 +93,24 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
                     id("trust${cryptoDeviceInfo.deviceId}")
                     style(ItemStyle.BIG_TEXT)
                     titleIconResourceId(shield)
-                    title(host.stringProvider.getString(R.string.crosssigning_verify_this_session))
-                    if (data.hasOtherSessions) {
-                        description(host.stringProvider.getString(R.string.confirm_your_identity))
-                    } else {
-                        description(host.stringProvider.getString(R.string.confirm_your_identity_quad_s))
-                    }
+                    title(host.stringProvider.getString(CommonStrings.crosssigning_verify_this_session).toEpoxyCharSequence())
+                    description(
+                            host.stringProvider
+                                    .getString(if (data.hasOtherSessions) CommonStrings.confirm_your_identity else CommonStrings.confirm_your_identity_quad_s)
+                                    .toEpoxyCharSequence()
+                    )
+                }
+            } else {
+                genericItem {
+                    id("reset${cryptoDeviceInfo.deviceId}")
+                    style(ItemStyle.BIG_TEXT)
+                    titleIconResourceId(shield)
+                    title(host.stringProvider.getString(CommonStrings.crosssigning_cannot_verify_this_session).toEpoxyCharSequence())
+                    description(
+                            host.stringProvider
+                                    .getString(CommonStrings.crosssigning_cannot_verify_this_session_desc)
+                                    .toEpoxyCharSequence()
+                    )
                 }
             }
         } else {
@@ -117,16 +125,16 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
                         id("trust${cryptoDeviceInfo.deviceId}")
                         style(ItemStyle.BIG_TEXT)
                         titleIconResourceId(shield)
-                        title(host.stringProvider.getString(R.string.encryption_information_verified))
-                        description(host.stringProvider.getString(R.string.settings_active_sessions_verified_device_desc))
+                        title(host.stringProvider.getString(CommonStrings.encryption_information_verified).toEpoxyCharSequence())
+                        description(host.stringProvider.getString(CommonStrings.settings_active_sessions_verified_device_desc).toEpoxyCharSequence())
                     }
                 } else {
                     genericItem {
                         id("trust${cryptoDeviceInfo.deviceId}")
                         titleIconResourceId(shield)
                         style(ItemStyle.BIG_TEXT)
-                        title(host.stringProvider.getString(R.string.encryption_information_not_verified))
-                        description(host.stringProvider.getString(R.string.settings_active_sessions_unverified_device_desc))
+                        title(host.stringProvider.getString(CommonStrings.encryption_information_not_verified).toEpoxyCharSequence())
+                        description(host.stringProvider.getString(CommonStrings.settings_active_sessions_unverified_device_desc).toEpoxyCharSequence())
                     }
                 }
             }
@@ -135,26 +143,46 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
         // DEVICE INFO SECTION
         genericItem {
             id("info${cryptoDeviceInfo.deviceId}")
-            title(cryptoDeviceInfo.displayName() ?: "")
-            description("(${cryptoDeviceInfo.deviceId})")
+            title(cryptoDeviceInfo.displayName().orEmpty().toEpoxyCharSequence())
+            description("(${cryptoDeviceInfo.deviceId})".toEpoxyCharSequence())
         }
 
-        if (isMine && !currentSessionIsTrusted && data.canVerifySession) {
-            // Add complete security
-            bottomSheetDividerItem {
-                id("completeSecurityDiv")
-            }
-            bottomSheetVerificationActionItem {
-                id("completeSecurity")
-                title(host.stringProvider.getString(R.string.crosssigning_verify_this_session))
-                titleColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
-                iconRes(R.drawable.ic_arrow_right)
-                iconColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
-                listener {
-                    host.callback?.onAction(DevicesAction.CompleteSecurity)
+        if (isMine) {
+            if (!currentSessionIsTrusted) {
+                if (data.canVerifySession) {
+                    // Add complete security
+                    bottomSheetDividerItem {
+                        id("completeSecurityDiv")
+                    }
+                    bottomSheetVerificationActionItem {
+                        id("completeSecurity")
+                        title(host.stringProvider.getString(CommonStrings.crosssigning_verify_this_session))
+                        titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                        iconRes(R.drawable.ic_arrow_right)
+                        iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                        listener {
+                            host.callback?.onAction(DevicesAction.CompleteSecurity)
+                        }
+                    }
+                } else {
+                    bottomSheetDividerItem {
+                        id("resetSecurityDiv")
+                    }
+                    bottomSheetVerificationActionItem {
+                        id("resetSecurity")
+                        title(host.stringProvider.getString(CommonStrings.secure_backup_reset_all))
+                        titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                        iconRes(R.drawable.ic_arrow_right)
+                        iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                        listener {
+                            host.callback?.onAction(DevicesAction.ResetSecurity)
+                        }
+                    }
                 }
             }
-        } else if (!isMine) {
+        } else
+        /** if (!isMine) **/
+        {
             if (currentSessionIsTrusted) {
                 // we can propose to verify it
                 val isVerified = cryptoDeviceInfo.trustLevel?.crossSigningVerified.orFalse()
@@ -176,24 +204,24 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
                 id("trust${cryptoDeviceInfo.deviceId}")
                 style(ItemStyle.BIG_TEXT)
                 titleIconResourceId(shield)
-                title(host.stringProvider.getString(R.string.encryption_information_verified))
-                description(host.stringProvider.getString(R.string.settings_active_sessions_verified_device_desc))
+                title(host.stringProvider.getString(CommonStrings.encryption_information_verified).toEpoxyCharSequence())
+                description(host.stringProvider.getString(CommonStrings.settings_active_sessions_verified_device_desc).toEpoxyCharSequence())
             }
         } else {
             genericItem {
                 id("trust${cryptoDeviceInfo.deviceId}")
                 titleIconResourceId(shield)
                 style(ItemStyle.BIG_TEXT)
-                title(host.stringProvider.getString(R.string.encryption_information_not_verified))
-                description(host.stringProvider.getString(R.string.settings_active_sessions_unverified_device_desc))
+                title(host.stringProvider.getString(CommonStrings.encryption_information_not_verified).toEpoxyCharSequence())
+                description(host.stringProvider.getString(CommonStrings.settings_active_sessions_unverified_device_desc).toEpoxyCharSequence())
             }
         }
 
         // DEVICE INFO SECTION
         genericItem {
             id("info${cryptoDeviceInfo.deviceId}")
-            title(cryptoDeviceInfo.displayName() ?: "")
-            description("(${cryptoDeviceInfo.deviceId})")
+            title(cryptoDeviceInfo.displayName().orEmpty().toEpoxyCharSequence())
+            description("(${cryptoDeviceInfo.deviceId})".toEpoxyCharSequence())
         }
 
         // ACTIONS
@@ -205,10 +233,10 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
             }
             bottomSheetVerificationActionItem {
                 id("verify${cryptoDeviceInfo.deviceId}")
-                title(host.stringProvider.getString(R.string.verification_verify_device))
-                titleColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
+                title(host.stringProvider.getString(CommonStrings.verification_verify_device))
+                titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
                 iconRes(R.drawable.ic_arrow_right)
-                iconColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
+                iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
                 listener {
                     host.callback?.onAction(DevicesAction.VerifyMyDevice(cryptoDeviceInfo.deviceId))
                 }
@@ -218,17 +246,19 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
 
     private fun addVerifyActions(cryptoDeviceInfo: CryptoDeviceInfo) {
         val host = this
-        bottomSheetDividerItem {
-            id("verifyDiv")
-        }
-        bottomSheetVerificationActionItem {
-            id("verify_text")
-            title(host.stringProvider.getString(R.string.cross_signing_verify_by_text))
-            titleColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
-            iconRes(R.drawable.ic_arrow_right)
-            iconColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
-            listener {
-                host.callback?.onAction(DevicesAction.VerifyMyDeviceManually(cryptoDeviceInfo.deviceId))
+        if (vectorPreferences.developerMode()) {
+            bottomSheetDividerItem {
+                id("verifyDiv")
+            }
+            bottomSheetVerificationActionItem {
+                id("verify_text")
+                title(host.stringProvider.getString(CommonStrings.cross_signing_verify_by_text))
+                titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                iconRes(R.drawable.ic_arrow_right)
+                iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
+                listener {
+                    host.callback?.onAction(DevicesAction.VerifyMyDeviceManually(cryptoDeviceInfo.deviceId))
+                }
             }
         }
         bottomSheetDividerItem {
@@ -236,10 +266,10 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
         }
         bottomSheetVerificationActionItem {
             id("verify_emoji")
-            title(host.stringProvider.getString(R.string.cross_signing_verify_by_emoji))
-            titleColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
+            title(host.stringProvider.getString(CommonStrings.cross_signing_verify_by_emoji))
+            titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
             iconRes(R.drawable.ic_arrow_right)
-            iconColor(host.colorProvider.getColorFromAttribute(R.attr.colorPrimary))
+            iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorPrimary))
             listener {
                 host.callback?.onAction(DevicesAction.VerifyMyDevice(cryptoDeviceInfo.deviceId))
             }
@@ -256,10 +286,10 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
             }
             bottomSheetVerificationActionItem {
                 id("delete")
-                title(host.stringProvider.getString(R.string.settings_active_sessions_signout_device))
-                titleColor(host.colorProvider.getColorFromAttribute(R.attr.colorError))
+                title(host.stringProvider.getString(CommonStrings.settings_active_sessions_signout_device))
+                titleColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorError))
                 iconRes(R.drawable.ic_arrow_right)
-                iconColor(host.colorProvider.getColorFromAttribute(R.attr.colorError))
+                iconColor(host.colorProvider.getColorFromAttribute(com.google.android.material.R.attr.colorError))
                 listener {
                     host.callback?.onAction(DevicesAction.Delete(deviceId))
                 }
@@ -272,10 +302,10 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
         }
         bottomSheetVerificationActionItem {
             id("rename")
-            title(host.stringProvider.getString(R.string.rename))
-            titleColor(host.colorProvider.getColorFromAttribute(R.attr.vctr_content_primary))
+            title(host.stringProvider.getString(CommonStrings.action_rename))
+            titleColor(host.colorProvider.getColorFromAttribute(im.vector.lib.ui.styles.R.attr.vctr_content_primary))
             iconRes(R.drawable.ic_arrow_right)
-            iconColor(host.colorProvider.getColorFromAttribute(R.attr.vctr_content_primary))
+            iconColor(host.colorProvider.getColorFromAttribute(im.vector.lib.ui.styles.R.attr.vctr_content_primary))
             listener {
                 host.callback?.onAction(DevicesAction.PromptRename(deviceId))
             }
@@ -287,13 +317,13 @@ class DeviceVerificationInfoBottomSheetController @Inject constructor(
         val info = data.deviceInfo.invoke() ?: return
         genericItem {
             id("info${info.deviceId}")
-            title(info.displayName ?: "")
-            description("(${info.deviceId})")
+            title(info.displayName.orEmpty().toEpoxyCharSequence())
+            description("(${info.deviceId})".toEpoxyCharSequence())
         }
 
         genericFooterItem {
             id("infoCrypto${info.deviceId}")
-            text(host.stringProvider.getString(R.string.settings_failed_to_get_crypto_device_info))
+            text(host.stringProvider.getString(CommonStrings.settings_failed_to_get_crypto_device_info).toEpoxyCharSequence())
         }
 
         info.deviceId?.let { addGenericDeviceManageActions(data, it) }

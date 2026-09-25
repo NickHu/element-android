@@ -1,23 +1,15 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home
 
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.widget.ImageView
 import androidx.annotation.AnyThread
 import androidx.annotation.ColorInt
@@ -26,35 +18,43 @@ import androidx.core.graphics.drawable.toBitmap
 import com.amulyakhare.textdrawable.TextDrawable
 import com.bumptech.glide.load.MultiTransformation
 import com.bumptech.glide.load.Transformation
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.CircleCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.DrawableImageViewTarget
 import com.bumptech.glide.request.target.Target
+import com.bumptech.glide.signature.ObjectKey
 import im.vector.app.core.contacts.MappedContact
 import im.vector.app.core.di.ActiveSessionHolder
 import im.vector.app.core.glide.AvatarPlaceholder
 import im.vector.app.core.glide.GlideApp
 import im.vector.app.core.glide.GlideRequest
 import im.vector.app.core.glide.GlideRequests
+import im.vector.app.core.resources.StringProvider
 import im.vector.app.core.utils.DimensionConverter
+import im.vector.app.features.displayname.getBestName
 import im.vector.app.features.home.room.detail.timeline.helper.MatrixItemColorProvider
+import im.vector.lib.strings.CommonStrings
 import jp.wasabeef.glide.transformations.BlurTransformation
 import jp.wasabeef.glide.transformations.ColorFilterTransformation
 import org.matrix.android.sdk.api.auth.login.LoginProfileInfo
 import org.matrix.android.sdk.api.extensions.tryOrNull
 import org.matrix.android.sdk.api.session.content.ContentUrlResolver
 import org.matrix.android.sdk.api.util.MatrixItem
+import java.io.File
 import javax.inject.Inject
 
 /**
- * This helper centralise ways to retrieve avatar into ImageView or even generic Target<Drawable>
+ * This helper centralise ways to retrieve avatar into ImageView or even generic Target<Drawable>.
  */
-
-class AvatarRenderer @Inject constructor(private val activeSessionHolder: ActiveSessionHolder,
-                                         private val matrixItemColorProvider: MatrixItemColorProvider,
-                                         private val dimensionConverter: DimensionConverter) {
+class AvatarRenderer @Inject constructor(
+        private val activeSessionHolder: ActiveSessionHolder,
+        private val matrixItemColorProvider: MatrixItemColorProvider,
+        private val dimensionConverter: DimensionConverter,
+        private val stringProvider: StringProvider,
+) {
 
     companion object {
         private const val THUMBNAIL_SIZE = 250
@@ -62,9 +62,12 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
 
     @UiThread
     fun render(matrixItem: MatrixItem, imageView: ImageView) {
-        render(GlideApp.with(imageView),
+        imageView.setContentDescription(matrixItem)
+        render(
+                GlideApp.with(imageView),
                 matrixItem,
-                DrawableImageViewTarget(imageView))
+                DrawableImageViewTarget(imageView),
+        )
     }
 
 //    fun renderSpace(matrixItem: MatrixItem, imageView: ImageView) {
@@ -93,9 +96,23 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
 
     @UiThread
     fun render(matrixItem: MatrixItem, imageView: ImageView, glideRequests: GlideRequests) {
-        render(glideRequests,
+        imageView.setContentDescription(matrixItem)
+        render(
+                glideRequests,
                 matrixItem,
-                DrawableImageViewTarget(imageView))
+                DrawableImageViewTarget(imageView),
+        )
+    }
+
+    @UiThread
+    fun render(matrixItem: MatrixItem, localUri: Uri?, imageView: ImageView) {
+        imageView.setContentDescription(matrixItem)
+        val placeholder = getPlaceholderDrawable(matrixItem)
+        GlideApp.with(imageView)
+                .load(localUri?.let { File(localUri.path!!) })
+                .apply(RequestOptions.circleCropTransform())
+                .placeholder(placeholder)
+                .into(imageView)
     }
 
     @UiThread
@@ -104,7 +121,7 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
         val matrixItem = MatrixItem.UserItem(
                 // Need an id starting with @
                 id = "@${mappedContact.displayName}",
-                displayName = mappedContact.displayName
+                displayName = mappedContact.displayName,
         )
 
         val placeholder = getPlaceholderDrawable(matrixItem)
@@ -121,7 +138,7 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
         val matrixItem = MatrixItem.UserItem(
                 // Need an id starting with @
                 id = profileInfo.matrixId,
-                displayName = profileInfo.displayName
+                displayName = profileInfo.displayName,
         )
 
         val placeholder = getPlaceholderDrawable(matrixItem)
@@ -133,9 +150,11 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
     }
 
     @UiThread
-    fun render(glideRequests: GlideRequests,
-               matrixItem: MatrixItem,
-               target: Target<Drawable>) {
+    fun render(
+            glideRequests: GlideRequests,
+            matrixItem: MatrixItem,
+            target: Target<Drawable>
+    ) {
         val placeholder = getPlaceholderDrawable(matrixItem)
         glideRequests.loadResolvedUrl(matrixItem.avatarUrl)
                 .let {
@@ -143,7 +162,7 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
                         is MatrixItem.SpaceItem -> {
                             it.transform(MultiTransformation(CenterCrop(), RoundedCorners(dimensionConverter.dpToPx(8))))
                         }
-                        else                    -> {
+                        else -> {
                             it.apply(RequestOptions.circleCropTransform())
                         }
                     }
@@ -157,34 +176,60 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
     fun shortcutDrawable(glideRequests: GlideRequests, matrixItem: MatrixItem, iconSize: Int): Bitmap {
         return glideRequests
                 .asBitmap()
-                .let {
-                    val resolvedUrl = resolvedUrl(matrixItem.avatarUrl)
-                    if (resolvedUrl != null) {
-                        it.load(resolvedUrl)
-                    } else {
-                        val avatarColor = matrixItemColorProvider.getColor(matrixItem)
-                        it.load(TextDrawable.builder()
-                                .beginConfig()
-                                .bold()
-                                .endConfig()
-                                .buildRect(matrixItem.firstLetterOfDisplayName(), avatarColor)
-                                .toBitmap(width = iconSize, height = iconSize))
-                    }
-                }
+                .avatarOrText(matrixItem, iconSize)
                 .apply(RequestOptions.centerCropTransform())
                 .submit(iconSize, iconSize)
                 .get()
     }
 
+    @AnyThread
+    @Throws
+    fun adaptiveShortcutDrawable(
+            glideRequests: GlideRequests,
+            matrixItem: MatrixItem, iconSize: Int,
+            adaptiveIconSize: Int,
+            adaptiveIconOuterSides: Float
+    ): Bitmap {
+        return glideRequests
+                .asBitmap()
+                .avatarOrText(matrixItem, iconSize)
+                .transform(CenterCrop(), AdaptiveIconTransformation(adaptiveIconSize, adaptiveIconOuterSides))
+                .signature(ObjectKey("adaptive-icon"))
+                .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+                .submit(iconSize, iconSize)
+                .get()
+    }
+
+    private fun GlideRequest<Bitmap>.avatarOrText(matrixItem: MatrixItem, iconSize: Int): GlideRequest<Bitmap> {
+        return this.let {
+            val resolvedUrl = resolvedUrl(matrixItem.avatarUrl)
+            if (resolvedUrl != null) {
+                it.load(resolvedUrl)
+            } else {
+                val avatarColor = matrixItemColorProvider.getColor(matrixItem)
+                it.load(
+                        TextDrawable.builder()
+                                .beginConfig()
+                                .bold()
+                                .endConfig()
+                                .buildRect(matrixItem.firstLetterOfDisplayName(), avatarColor)
+                                .toBitmap(width = iconSize, height = iconSize),
+                )
+            }
+        }
+    }
+
     @UiThread
-    fun renderBlur(matrixItem: MatrixItem,
-                   imageView: ImageView,
-                   sampling: Int,
-                   rounded: Boolean,
-                   @ColorInt colorFilter: Int? = null,
-                   addPlaceholder: Boolean) {
+    fun renderBlur(
+            matrixItem: MatrixItem,
+            imageView: ImageView,
+            sampling: Int,
+            rounded: Boolean,
+            @ColorInt colorFilter: Int? = null,
+            addPlaceholder: Boolean
+    ) {
         val transformations = mutableListOf<Transformation<Bitmap>>(
-                BlurTransformation(20, sampling)
+                BlurTransformation(20, sampling),
         )
         if (colorFilter != null) {
             transformations.add(ColorFilterTransformation(colorFilter))
@@ -230,7 +275,7 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
                         is MatrixItem.SpaceItem -> {
                             it.buildRoundRect(matrixItem.firstLetterOfDisplayName(), avatarColor, dimensionConverter.dpToPx(8))
                         }
-                        else                    -> {
+                        else -> {
                             it.buildRound(matrixItem.firstLetterOfDisplayName(), avatarColor)
                         }
                     }
@@ -247,5 +292,29 @@ class AvatarRenderer @Inject constructor(private val activeSessionHolder: Active
     private fun resolvedUrl(avatarUrl: String?): String? {
         return activeSessionHolder.getSafeActiveSession()?.contentUrlResolver()
                 ?.resolveThumbnail(avatarUrl, THUMBNAIL_SIZE, THUMBNAIL_SIZE, ContentUrlResolver.ThumbnailMethod.SCALE)
+    }
+
+    /**
+     * Accessibility management.
+     */
+    private fun ImageView.setContentDescription(matrixItem: MatrixItem) {
+        // Do not set contentDescription if the ImageView should be ignored regarding accessibility.
+        if (isImportantForAccessibility.not()) return
+        when (matrixItem) {
+            is MatrixItem.SpaceItem -> {
+                contentDescription = stringProvider.getString(CommonStrings.avatar_of_space, matrixItem.getBestName())
+            }
+            is MatrixItem.RoomAliasItem,
+            is MatrixItem.RoomItem -> {
+                contentDescription = stringProvider.getString(CommonStrings.avatar_of_room, matrixItem.getBestName())
+            }
+            is MatrixItem.UserItem -> {
+                contentDescription = stringProvider.getString(CommonStrings.avatar_of_user, matrixItem.getBestName())
+            }
+            is MatrixItem.EveryoneInRoomItem,
+            is MatrixItem.EventItem -> {
+                // NA
+            }
+        }
     }
 }

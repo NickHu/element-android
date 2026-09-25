@@ -1,119 +1,76 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.leave
 
-import androidx.lifecycle.viewModelScope
-import com.airbnb.mvrx.ActivityViewModelContext
 import com.airbnb.mvrx.Fail
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
-import im.vector.app.AppStateHandler
+import im.vector.app.SpaceStateHandler
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.platform.EmptyViewEvents
 import im.vector.app.core.platform.VectorViewModel
+import im.vector.app.features.powerlevel.isLastAdminFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import okhttp3.internal.toImmutableList
-import org.matrix.android.sdk.api.query.ActiveSpaceFilter
 import org.matrix.android.sdk.api.query.RoomCategoryFilter
+import org.matrix.android.sdk.api.query.SpaceFilter
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoom
 import org.matrix.android.sdk.api.session.room.model.Membership
 import org.matrix.android.sdk.api.session.room.roomSummaryQueryParams
-import org.matrix.android.sdk.rx.rx
+import org.matrix.android.sdk.flow.flow
+import org.matrix.android.sdk.flow.unwrap
 import timber.log.Timber
 
 class SpaceLeaveAdvancedViewModel @AssistedInject constructor(
         @Assisted val initialState: SpaceLeaveAdvanceViewState,
         private val session: Session,
-        private val appStateHandler: AppStateHandler
+        private val spaceStateHandler: SpaceStateHandler
 ) : VectorViewModel<SpaceLeaveAdvanceViewState, SpaceLeaveAdvanceViewAction, EmptyViewEvents>(initialState) {
 
-    override fun handle(action: SpaceLeaveAdvanceViewAction) = withState { state ->
-        when (action) {
-            is SpaceLeaveAdvanceViewAction.ToggleSelection -> {
-                val existing = state.selectedRooms.toMutableList()
-                if (existing.contains(action.roomId)) {
-                    existing.remove(action.roomId)
-                } else {
-                    existing.add(action.roomId)
-                }
-                setState {
-                    copy(
-                            selectedRooms = existing.toImmutableList()
-                    )
-                }
-            }
-            is SpaceLeaveAdvanceViewAction.UpdateFilter    -> {
-                setState { copy(currentFilter = action.filter) }
-            }
-            SpaceLeaveAdvanceViewAction.DoLeave            -> {
-                setState { copy(leaveState = Loading()) }
-                viewModelScope.launch {
-                    try {
-                        state.selectedRooms.forEach {
-                            try {
-                                session.getRoom(it)?.leave(null)
-                            } catch (failure: Throwable) {
-                                // silently ignore?
-                                Timber.e(failure, "Fail to leave sub rooms/spaces")
-                            }
-                        }
-
-                        session.getRoom(initialState.spaceId)?.leave(null)
-                        // We observe the membership and to dismiss when we have remote echo of leaving
-                    } catch (failure: Throwable) {
-                        setState { copy(leaveState = Fail(failure)) }
-                    }
-                }
-            }
-            SpaceLeaveAdvanceViewAction.ClearError         -> {
-                setState { copy(leaveState = Uninitialized) }
-            }
-        }
-    }
-
     init {
-        val spaceSummary = session.getRoomSummary(initialState.spaceId)
+        val space = session.getRoom(initialState.spaceId)
+
+        space?.isLastAdminFlow(session.myUserId)
+                ?.onEach { isLastAdmin ->
+                    setState { copy(isLastAdmin = isLastAdmin) }
+                }?.launchIn(viewModelScope)
+
+        val spaceSummary = space?.roomSummary()
         setState { copy(spaceSummary = spaceSummary) }
-        session.getRoom(initialState.spaceId)?.let { room ->
-            room.rx().liveRoomSummary().subscribe {
-                it.getOrNull()?.let {
+        session.getRoom(initialState.spaceId)
+                ?.flow()
+                ?.liveRoomSummary()
+                ?.unwrap()
+                ?.onEach {
                     if (it.membership == Membership.LEAVE) {
                         setState { copy(leaveState = Success(Unit)) }
-                        if (appStateHandler.safeActiveSpaceId() == initialState.spaceId) {
+                        if (spaceStateHandler.getSafeActiveSpaceId() == initialState.spaceId) {
                             // switch to home?
-                            appStateHandler.setCurrentSpace(null, session)
+                            spaceStateHandler.setCurrentSpace(null, session)
                         }
                     }
-                }
-            }
-        }
+                }?.launchIn(viewModelScope)
 
         viewModelScope.launch {
-            val children = session.getRoomSummaries(
+            val children = session.roomService().getRoomSummaries(
                     roomSummaryQueryParams {
                         includeType = null
                         memberships = listOf(Membership.JOIN)
-                        activeSpaceFilter = ActiveSpaceFilter.ActiveSpace(initialState.spaceId)
+                        spaceFilter = SpaceFilter.ActiveSpace(initialState.spaceId)
                         roomCategoryFilter = RoomCategoryFilter.ONLY_ROOMS
                     }
             )
@@ -124,18 +81,66 @@ class SpaceLeaveAdvancedViewModel @AssistedInject constructor(
         }
     }
 
-    @AssistedFactory
-    interface Factory {
-        fun create(initialState: SpaceLeaveAdvanceViewState): SpaceLeaveAdvancedViewModel
-    }
-
-    companion object : MvRxViewModelFactory<SpaceLeaveAdvancedViewModel, SpaceLeaveAdvanceViewState> {
-        override fun create(viewModelContext: ViewModelContext, state: SpaceLeaveAdvanceViewState): SpaceLeaveAdvancedViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
+    override fun handle(action: SpaceLeaveAdvanceViewAction) {
+        when (action) {
+            is SpaceLeaveAdvanceViewAction.UpdateFilter -> setState { copy(currentFilter = action.filter) }
+            SpaceLeaveAdvanceViewAction.ClearError -> setState { copy(leaveState = Uninitialized) }
+            SpaceLeaveAdvanceViewAction.SelectNone -> setState { copy(selectedRooms = emptyList()) }
+            is SpaceLeaveAdvanceViewAction.SetFilteringEnabled -> setState { copy(isFilteringEnabled = action.isEnabled) }
+            is SpaceLeaveAdvanceViewAction.ToggleSelection -> handleSelectionToggle(action)
+            SpaceLeaveAdvanceViewAction.DoLeave -> handleLeave()
+            SpaceLeaveAdvanceViewAction.SelectAll -> handleSelectAll()
         }
     }
+
+    private fun handleSelectAll() = withState { state ->
+        val filteredRooms = (state.allChildren as? Success)?.invoke()?.filter {
+            it.name.contains(state.currentFilter, true)
+        }
+        filteredRooms?.let {
+            setState { copy(selectedRooms = it.map { it.roomId }) }
+        }
+    }
+
+    private fun handleLeave() = withState { state ->
+        setState { copy(leaveState = Loading()) }
+        viewModelScope.launch {
+            try {
+                state.selectedRooms.forEach {
+                    try {
+                        session.roomService().leaveRoom(it)
+                    } catch (failure: Throwable) {
+                        // silently ignore?
+                        Timber.e(failure, "Fail to leave sub rooms/spaces")
+                    }
+                }
+
+                session.spaceService().leaveSpace(initialState.spaceId)
+                // We observe the membership and to dismiss when we have remote echo of leaving
+            } catch (failure: Throwable) {
+                setState { copy(leaveState = Fail(failure)) }
+            }
+        }
+    }
+
+    private fun handleSelectionToggle(action: SpaceLeaveAdvanceViewAction.ToggleSelection) = withState { state ->
+        val existing = state.selectedRooms.toMutableList()
+        if (existing.contains(action.roomId)) {
+            existing.remove(action.roomId)
+        } else {
+            existing.add(action.roomId)
+        }
+        setState {
+            copy(
+                    selectedRooms = existing.toImmutableList(),
+            )
+        }
+    }
+
+    @AssistedFactory
+    interface Factory : MavericksAssistedViewModelFactory<SpaceLeaveAdvancedViewModel, SpaceLeaveAdvanceViewState> {
+        override fun create(initialState: SpaceLeaveAdvanceViewState): SpaceLeaveAdvancedViewModel
+    }
+
+    companion object : MavericksViewModelFactory<SpaceLeaveAdvancedViewModel, SpaceLeaveAdvanceViewState> by hiltMavericksViewModelFactory()
 }

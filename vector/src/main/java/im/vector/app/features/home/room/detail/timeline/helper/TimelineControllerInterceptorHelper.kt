@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.timeline.helper
@@ -25,12 +16,14 @@ import im.vector.app.features.home.room.detail.timeline.item.DaySeparatorItem
 import im.vector.app.features.home.room.detail.timeline.item.ItemWithEvents
 import im.vector.app.features.home.room.detail.timeline.item.TimelineReadMarkerItem_
 import org.matrix.android.sdk.api.session.room.timeline.Timeline
+import kotlin.random.Random
 import kotlin.reflect.KMutableProperty0
 
 private const val DEFAULT_PREFETCH_THRESHOLD = 30
 
-class TimelineControllerInterceptorHelper(private val positionOfReadMarker: KMutableProperty0<Int?>,
-                                          private val adapterPositionMapping: MutableMap<String, Int>
+class TimelineControllerInterceptorHelper(
+        private val positionOfReadMarker: KMutableProperty0<Int?>,
+        private val adapterPositionMapping: MutableMap<String, Int>
 ) {
 
     private var previousModelsSize = 0
@@ -65,8 +58,8 @@ class TimelineControllerInterceptorHelper(private val positionOfReadMarker: KMut
                 }
                 epoxyModel.getEventIds().forEach { eventId ->
                     adapterPositionMapping[eventId] = index
-                    appendReadMarker = appendReadMarker
-                            || (epoxyModel.canAppendReadMarker() && eventId == firstUnreadEventId && atLeastOneVisibleItemsBeforeReadMarker)
+                    appendReadMarker = appendReadMarker ||
+                            (epoxyModel.canAppendReadMarker() && eventId == firstUnreadEventId && atLeastOneVisibleItemsBeforeReadMarker)
                 }
             }
             if (epoxyModel is DaySeparatorItem) {
@@ -104,7 +97,7 @@ class TimelineControllerInterceptorHelper(private val positionOfReadMarker: KMut
                     .coerceAtLeast(0)
 
             val loadingItem = LoadingItem_()
-                    .id("prefetch_backward_loading${System.currentTimeMillis()}")
+                    .id("prefetch_backward_loading${Random.nextLong()}")
                     .showLoader(false)
                     .setVisibilityStateChangedListener(Timeline.Direction.BACKWARDS, callback)
 
@@ -115,9 +108,12 @@ class TimelineControllerInterceptorHelper(private val positionOfReadMarker: KMut
     private fun MutableList<EpoxyModel<*>>.addForwardPrefetchIfNeeded(timeline: Timeline?, callback: TimelineEventController.Callback?) {
         val shouldAddForwardPrefetch = timeline?.hasMoreToLoad(Timeline.Direction.FORWARDS) ?: false
         if (shouldAddForwardPrefetch) {
-            val indexOfPrefetchForward = DEFAULT_PREFETCH_THRESHOLD.coerceAtMost(size - 1)
+            val indexOfPrefetchForward = DEFAULT_PREFETCH_THRESHOLD
+                    .coerceAtMost(size - 1)
+                    .coerceAtLeast(0)
+
             val loadingItem = LoadingItem_()
-                    .id("prefetch_forward_loading${System.currentTimeMillis()}")
+                    .id("prefetch_forward_loading${Random.nextLong()}")
                     .showLoader(false)
                     .setVisibilityStateChangedListener(Timeline.Direction.FORWARDS, callback)
             add(indexOfPrefetchForward, loadingItem)

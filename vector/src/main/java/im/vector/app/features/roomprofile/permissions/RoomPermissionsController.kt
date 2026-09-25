@@ -1,30 +1,21 @@
 /*
- * Copyright 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.roomprofile.permissions
 
 import com.airbnb.epoxy.TypedEpoxyController
 import com.airbnb.mvrx.Success
-import im.vector.app.R
 import im.vector.app.core.epoxy.loadingItem
 import im.vector.app.core.epoxy.profiles.buildProfileAction
 import im.vector.app.core.epoxy.profiles.buildProfileSection
 import im.vector.app.core.resources.StringProvider
 import im.vector.app.features.discovery.settingsInfoItem
 import im.vector.app.features.form.formAdvancedToggleItem
+import im.vector.lib.strings.CommonStrings
 import org.matrix.android.sdk.api.session.room.model.PowerLevelsContent
 import org.matrix.android.sdk.api.session.room.model.RoomType
 import org.matrix.android.sdk.api.session.room.model.banOrDefault
@@ -35,6 +26,7 @@ import org.matrix.android.sdk.api.session.room.model.redactOrDefault
 import org.matrix.android.sdk.api.session.room.model.stateDefaultOrDefault
 import org.matrix.android.sdk.api.session.room.model.usersDefaultOrDefault
 import org.matrix.android.sdk.api.session.room.powerlevels.Role
+import org.matrix.android.sdk.api.session.room.powerlevels.UserPowerLevel
 import javax.inject.Inject
 
 class RoomPermissionsController @Inject constructor(
@@ -43,7 +35,7 @@ class RoomPermissionsController @Inject constructor(
 ) : TypedEpoxyController<RoomPermissionsViewState>() {
 
     interface Callback {
-        fun onEditPermission(editablePermission: EditablePermission, currentRole: Role)
+        fun onEditPermission(editablePermission: EditablePermission, currentPowerLevel: UserPowerLevel.Value)
         fun toggleShowAllPermissions()
     }
 
@@ -108,22 +100,18 @@ class RoomPermissionsController @Inject constructor(
             EditablePermission.UpgradeTheRoom()
     )
 
-    init {
-        setData(null)
-    }
-
     override fun buildModels(data: RoomPermissionsViewState?) {
         val host = this
         buildProfileSection(
-                stringProvider.getString(R.string.room_permissions_title)
+                stringProvider.getString(CommonStrings.room_permissions_title)
         )
 
         when (val content = data?.currentPowerLevelsContent) {
             is Success -> buildPermissions(data, content())
-            else       -> {
+            else -> {
                 loadingItem {
                     id("loading")
-                    loadingText(host.stringProvider.getString(R.string.loading))
+                    loadingText(host.stringProvider.getString(CommonStrings.loading))
                 }
             }
         }
@@ -136,12 +124,15 @@ class RoomPermissionsController @Inject constructor(
 
         settingsInfoItem {
             id("notice")
-            helperText(host.stringProvider.getString(
-                    if (editable) {
-                        if (isSpace) R.string.space_permissions_notice else R.string.room_permissions_notice
-                    } else {
-                        if (isSpace) R.string.space_permissions_notice_read_only else R.string.room_permissions_notice_read_only
-                    }))
+            helperText(
+                    host.stringProvider.getString(
+                            if (editable) {
+                                if (isSpace) CommonStrings.space_permissions_notice else CommonStrings.room_permissions_notice
+                            } else {
+                                if (isSpace) CommonStrings.space_permissions_notice_read_only else CommonStrings.room_permissions_notice_read_only
+                            }
+                    )
+            )
         }
 
         // Useful permissions
@@ -154,7 +145,7 @@ class RoomPermissionsController @Inject constructor(
         // Toggle
         formAdvancedToggleItem {
             id("showAdvanced")
-            title(host.stringProvider.getString(if (data.showAdvancedPermissions) R.string.hide_advanced else R.string.show_advanced))
+            title(host.stringProvider.getString(if (data.showAdvancedPermissions) CommonStrings.hide_advanced else CommonStrings.show_advanced))
             expanded(!data.showAdvancedPermissions)
             listener { host.callback?.toggleShowAllPermissions() }
         }
@@ -169,11 +160,14 @@ class RoomPermissionsController @Inject constructor(
         }
     }
 
-    private fun buildPermission(editablePermission: EditablePermission,
-                                content: PowerLevelsContent,
-                                editable: Boolean,
-                                isSpace: Boolean) {
-        val currentRole = getCurrentRole(editablePermission, content)
+    private fun buildPermission(
+            editablePermission: EditablePermission,
+            content: PowerLevelsContent,
+            editable: Boolean,
+            isSpace: Boolean
+    ) {
+        val currentPowerLevel = getPowerLevel(editablePermission, content)
+        val currentRole = Role.getSuggestedRole(currentPowerLevel)
         buildProfileAction(
                 id = editablePermission.labelResId.toString(),
                 title = stringProvider.getString(
@@ -185,37 +179,23 @@ class RoomPermissionsController @Inject constructor(
                 action = {
                     callback
                             ?.takeIf { editable }
-                            ?.onEditPermission(editablePermission, currentRole)
+                            ?.onEditPermission(editablePermission, currentPowerLevel)
                 }
         )
     }
 
-    private fun getCurrentRole(editablePermission: EditablePermission, content: PowerLevelsContent): Role {
+    private fun getPowerLevel(editablePermission: EditablePermission, content: PowerLevelsContent): UserPowerLevel.Value {
         val value = when (editablePermission) {
             is EditablePermission.EventTypeEditablePermission -> content.events?.get(editablePermission.eventType) ?: content.stateDefaultOrDefault()
-            is EditablePermission.DefaultRole                 -> content.usersDefaultOrDefault()
-            is EditablePermission.SendMessages                -> content.eventsDefaultOrDefault()
-            is EditablePermission.InviteUsers                 -> content.inviteOrDefault()
-            is EditablePermission.ChangeSettings              -> content.stateDefaultOrDefault()
-            is EditablePermission.KickUsers                   -> content.kickOrDefault()
-            is EditablePermission.BanUsers                    -> content.banOrDefault()
-            is EditablePermission.RemoveMessagesSentByOthers  -> content.redactOrDefault()
-            is EditablePermission.NotifyEveryone              -> content.notificationLevel(PowerLevelsContent.NOTIFICATIONS_ROOM_KEY)
+            is EditablePermission.DefaultRole -> content.usersDefaultOrDefault()
+            is EditablePermission.SendMessages -> content.eventsDefaultOrDefault()
+            is EditablePermission.InviteUsers -> content.inviteOrDefault()
+            is EditablePermission.ChangeSettings -> content.stateDefaultOrDefault()
+            is EditablePermission.KickUsers -> content.kickOrDefault()
+            is EditablePermission.BanUsers -> content.banOrDefault()
+            is EditablePermission.RemoveMessagesSentByOthers -> content.redactOrDefault()
+            is EditablePermission.NotifyEveryone -> content.notificationLevel(PowerLevelsContent.NOTIFICATIONS_ROOM_KEY)
         }
-
-        return Role.fromValue(
-                value,
-                when (editablePermission) {
-                    is EditablePermission.EventTypeEditablePermission -> content.stateDefaultOrDefault()
-                    is EditablePermission.DefaultRole                 -> Role.Default.value
-                    is EditablePermission.SendMessages                -> Role.Default.value
-                    is EditablePermission.InviteUsers                 -> Role.Moderator.value
-                    is EditablePermission.ChangeSettings              -> Role.Moderator.value
-                    is EditablePermission.KickUsers                   -> Role.Moderator.value
-                    is EditablePermission.BanUsers                    -> Role.Moderator.value
-                    is EditablePermission.RemoveMessagesSentByOthers  -> Role.Moderator.value
-                    is EditablePermission.NotifyEveryone              -> Role.Moderator.value
-                }
-        )
+        return UserPowerLevel.Value(value)
     }
 }

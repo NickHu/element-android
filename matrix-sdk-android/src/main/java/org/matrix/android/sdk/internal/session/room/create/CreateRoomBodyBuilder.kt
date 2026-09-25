@@ -16,15 +16,20 @@
 
 package org.matrix.android.sdk.internal.session.room.create
 
+import org.matrix.android.sdk.api.crypto.MXCRYPTO_ALGORITHM_MEGOLM
 import org.matrix.android.sdk.api.extensions.tryOrNull
+import org.matrix.android.sdk.api.session.crypto.CryptoService
 import org.matrix.android.sdk.api.session.events.model.Event
 import org.matrix.android.sdk.api.session.events.model.EventType
+import org.matrix.android.sdk.api.session.events.model.content.EncryptionEventContent
+import org.matrix.android.sdk.api.session.events.model.toContent
 import org.matrix.android.sdk.api.session.identity.IdentityServiceError
 import org.matrix.android.sdk.api.session.identity.toMedium
+import org.matrix.android.sdk.api.session.room.model.RoomAvatarContent
+import org.matrix.android.sdk.api.session.room.model.RoomGuestAccessContent
+import org.matrix.android.sdk.api.session.room.model.RoomHistoryVisibilityContent
 import org.matrix.android.sdk.api.session.room.model.create.CreateRoomParams
 import org.matrix.android.sdk.api.util.MimeTypes
-import org.matrix.android.sdk.internal.crypto.DeviceListManager
-import org.matrix.android.sdk.internal.crypto.MXCRYPTO_ALGORITHM_MEGOLM
 import org.matrix.android.sdk.internal.di.AuthenticatedIdentity
 import org.matrix.android.sdk.internal.di.UserId
 import org.matrix.android.sdk.internal.network.token.AccessTokenProvider
@@ -39,7 +44,7 @@ import javax.inject.Inject
 
 internal class CreateRoomBodyBuilder @Inject constructor(
         private val ensureIdentityTokenTask: EnsureIdentityTokenTask,
-        private val deviceListManager: DeviceListManager,
+        private val cryptoService: CryptoService,
         private val identityStore: IdentityStore,
         private val fileUploader: FileUploader,
         @UserId
@@ -77,9 +82,9 @@ internal class CreateRoomBodyBuilder @Inject constructor(
                         buildHistoryVisibilityEvent(params),
                         buildAvatarEvent(params),
                         buildGuestAccess(params)
-                )
-                        + params.featurePreset?.setupInitialStates().orEmpty()
-                        + buildCustomInitialStates(params)
+                ) +
+                        buildFeaturePresetInitialStates(params) +
+                        buildCustomInitialStates(params)
                 )
                 .takeIf { it.isNotEmpty() }
 
@@ -99,6 +104,16 @@ internal class CreateRoomBodyBuilder @Inject constructor(
         )
     }
 
+    private fun buildFeaturePresetInitialStates(params: CreateRoomParams): List<Event> {
+        return params.featurePreset?.setupInitialStates().orEmpty().map {
+            Event(
+                    type = it.type,
+                    stateKey = it.stateKey,
+                    content = it.content
+            )
+        }
+    }
+
     private fun buildCustomInitialStates(params: CreateRoomParams): List<Event> {
         return params.initialStates.map {
             Event(
@@ -112,19 +127,19 @@ internal class CreateRoomBodyBuilder @Inject constructor(
     private suspend fun buildAvatarEvent(params: CreateRoomParams): Event? {
         return params.avatarUri?.let { avatarUri ->
             // First upload the image, ignoring any error
-            tryOrNull {
+            tryOrNull("Failed to upload image") {
                 fileUploader.uploadFromUri(
                         uri = avatarUri,
                         filename = UUID.randomUUID().toString(),
-                        mimeType = MimeTypes.Jpeg)
+                        mimeType = MimeTypes.Jpeg
+                )
             }
-                    ?.let { response ->
-                        Event(
-                                type = EventType.STATE_ROOM_AVATAR,
-                                stateKey = "",
-                                content = mapOf("url" to response.contentUri)
-                        )
-                    }
+        }?.let { response ->
+            Event(
+                    type = EventType.STATE_ROOM_AVATAR,
+                    stateKey = "",
+                    content = RoomAvatarContent(response.contentUri).toContent()
+            )
         }
     }
 
@@ -134,7 +149,7 @@ internal class CreateRoomBodyBuilder @Inject constructor(
                     Event(
                             type = EventType.STATE_ROOM_HISTORY_VISIBILITY,
                             stateKey = "",
-                            content = mapOf("history_visibility" to it)
+                            content = RoomHistoryVisibilityContent(it.value).toContent()
                     )
                 }
     }
@@ -145,7 +160,7 @@ internal class CreateRoomBodyBuilder @Inject constructor(
                     Event(
                             type = EventType.STATE_ROOM_GUEST_ACCESS,
                             stateKey = "",
-                            content = mapOf("guest_access" to it.value)
+                            content = RoomGuestAccessContent(it.value).toContent()
                     )
                 }
     }
@@ -154,8 +169,8 @@ internal class CreateRoomBodyBuilder @Inject constructor(
      * Add the crypto algorithm to the room creation parameters.
      */
     private suspend fun buildEncryptionWithAlgorithmEvent(params: CreateRoomParams): Event? {
-        if (params.algorithm == null
-                && canEnableEncryption(params)) {
+        if (params.algorithm == null &&
+                canEnableEncryption(params)) {
             // Enable the encryption
             params.enableEncryption()
         }
@@ -167,32 +182,29 @@ internal class CreateRoomBodyBuilder @Inject constructor(
                     Event(
                             type = EventType.STATE_ROOM_ENCRYPTION,
                             stateKey = "",
-                            content = mapOf("algorithm" to it)
+                            content = EncryptionEventContent(it).toContent()
                     )
                 }
     }
 
     private suspend fun canEnableEncryption(params: CreateRoomParams): Boolean {
-        return params.enableEncryptionIfInvitedUsersSupportIt
+        return params.enableEncryptionIfInvitedUsersSupportIt &&
                 // Parity with web, enable if users have encryption ready devices
-                // for now remove checks on cross signing and 3pid invites
+                // for now remove checks on cross signing
                 // && crossSigningService.isCrossSigningVerified()
-                && params.invite3pids.isEmpty()
-                && params.invitedUserIds.isNotEmpty()
-                && params.invitedUserIds.let { userIds ->
-            val keys = deviceListManager.downloadKeys(userIds, forceDownload = false)
-
-            userIds.all { userId ->
-                keys.map[userId].let { deviceMap ->
-                    if (deviceMap.isNullOrEmpty()) {
-                        // A user has no device, so do not enable encryption
-                        false
-                    } else {
-                        // Check that every user's device have at least one key
-                        deviceMap.values.all { !it.keys.isNullOrEmpty() }
+                params.invitedUserIds.let { userIds ->
+                    val keys = cryptoService.downloadKeysIfNeeded(userIds, forceDownload = false)
+                    userIds.all { userId ->
+                        keys.map[userId].let { deviceMap ->
+                            if (deviceMap.isNullOrEmpty()) {
+                                // A user has no device, so do not enable encryption
+                                false
+                            } else {
+                                // Check that every user's device have at least one key
+                                deviceMap.values.all { !it.keys.isNullOrEmpty() }
+                            }
+                        }
                     }
                 }
-            }
-        }
     }
 }

@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.explore
@@ -23,31 +14,36 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.widget.SearchView
 import androidx.core.text.toSpannable
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.RecyclerView
 import com.airbnb.epoxy.EpoxyVisibilityTracker
 import com.airbnb.mvrx.activityViewModel
 import com.airbnb.mvrx.withState
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.R
 import im.vector.app.core.extensions.cleanup
 import im.vector.app.core.extensions.configureWith
 import im.vector.app.core.extensions.registerStartForActivityResult
 import im.vector.app.core.platform.OnBackPressed
 import im.vector.app.core.platform.VectorBaseFragment
+import im.vector.app.core.platform.VectorMenuProvider
 import im.vector.app.core.resources.ColorProvider
 import im.vector.app.core.utils.colorizeMatchingText
 import im.vector.app.core.utils.isValidUrl
 import im.vector.app.core.utils.openUrlInExternalBrowser
 import im.vector.app.databinding.FragmentSpaceDirectoryBinding
+import im.vector.app.features.analytics.plan.MobileScreen
 import im.vector.app.features.home.room.detail.timeline.TimelineEventController
-import im.vector.app.features.matrixto.SpaceCardRenderer
 import im.vector.app.features.permalink.PermalinkHandler
 import im.vector.app.features.spaces.manage.ManageType
 import im.vector.app.features.spaces.manage.SpaceAddRoomSpaceChooserBottomSheet
 import im.vector.app.features.spaces.manage.SpaceManageActivity
-import io.reactivex.android.schedulers.AndroidSchedulers
-import io.reactivex.schedulers.Schedulers
+import im.vector.lib.strings.CommonStrings
+import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
 import org.matrix.android.sdk.api.session.room.model.SpaceChildInfo
 import java.net.URL
@@ -58,15 +54,17 @@ data class SpaceDirectoryArgs(
         val spaceId: String
 ) : Parcelable
 
-class SpaceDirectoryFragment @Inject constructor(
-        private val epoxyController: SpaceDirectoryController,
-        private val permalinkHandler: PermalinkHandler,
-        private val spaceCardRenderer: SpaceCardRenderer,
-        private val colorProvider: ColorProvider
-) : VectorBaseFragment<FragmentSpaceDirectoryBinding>(),
+@AndroidEntryPoint
+class SpaceDirectoryFragment :
+        VectorBaseFragment<FragmentSpaceDirectoryBinding>(),
         SpaceDirectoryController.InteractionListener,
         TimelineEventController.UrlClickCallback,
-        OnBackPressed {
+        OnBackPressed,
+        VectorMenuProvider {
+
+    @Inject lateinit var epoxyController: SpaceDirectoryController
+    @Inject lateinit var permalinkHandler: PermalinkHandler
+    @Inject lateinit var colorProvider: ColorProvider
 
     override fun getMenuRes() = R.menu.menu_space_directory
 
@@ -78,18 +76,22 @@ class SpaceDirectoryFragment @Inject constructor(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        analyticsScreenName = MobileScreen.ScreenName.SpaceExploreRooms
         childFragmentManager.setFragmentResultListener(SpaceAddRoomSpaceChooserBottomSheet.REQUEST_KEY, this) { _, bundle ->
 
             bundle.getString(SpaceAddRoomSpaceChooserBottomSheet.BUNDLE_KEY_ACTION)?.let { action ->
                 val spaceId = withState(viewModel) { it.spaceId }
                 when (action) {
-                    SpaceAddRoomSpaceChooserBottomSheet.ACTION_ADD_ROOMS  -> {
+                    SpaceAddRoomSpaceChooserBottomSheet.ACTION_ADD_ROOMS -> {
                         addExistingRoomActivityResult.launch(SpaceManageActivity.newIntent(requireContext(), spaceId, ManageType.AddRooms))
                     }
                     SpaceAddRoomSpaceChooserBottomSheet.ACTION_ADD_SPACES -> {
                         addExistingRoomActivityResult.launch(SpaceManageActivity.newIntent(requireContext(), spaceId, ManageType.AddRoomsOnlySpaces))
                     }
-                    else                                                  -> {
+                    SpaceAddRoomSpaceChooserBottomSheet.ACTION_CREATE_ROOM -> {
+                        viewModel.handle(SpaceDirectoryViewAction.CreateNewRoom)
+                    }
+                    else -> {
                         // nop
                     }
                 }
@@ -100,22 +102,40 @@ class SpaceDirectoryFragment @Inject constructor(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        vectorBaseActivity.setSupportActionBar(views.toolbar)
+        setupToolbar(views.toolbar)
+                .allowBack()
 
-        vectorBaseActivity.supportActionBar?.let {
-            it.setDisplayShowHomeEnabled(true)
-            it.setDisplayHomeAsUpEnabled(true)
-        }
         epoxyController.listener = this
         views.spaceDirectoryList.configureWith(epoxyController)
         epoxyVisibilityTracker.attach(views.spaceDirectoryList)
 
-        viewModel.selectSubscribe(this, SpaceDirectoryState::canAddRooms) {
+        viewModel.onEach(SpaceDirectoryState::canAddRooms) {
             invalidateOptionsMenu()
         }
 
-        views.spaceCard.matrixToCardMainButton.isVisible = false
-        views.spaceCard.matrixToCardSecondaryButton.isVisible = false
+        views.addOrCreateChatRoomButton.debouncedClicks {
+            withState(viewModel) {
+                addExistingRooms(it.spaceId)
+            }
+        }
+
+        // Hide FAB when list is scrolling
+        views.spaceDirectoryList.addOnScrollListener(
+                object : RecyclerView.OnScrollListener() {
+                    override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                        views.addOrCreateChatRoomButton.removeCallbacks(showFabRunnable)
+
+                        when (newState) {
+                            RecyclerView.SCROLL_STATE_IDLE -> {
+                                views.addOrCreateChatRoomButton.postDelayed(showFabRunnable, 250)
+                            }
+                            RecyclerView.SCROLL_STATE_DRAGGING,
+                            RecyclerView.SCROLL_STATE_SETTLING -> {
+                                views.addOrCreateChatRoomButton.hide()
+                            }
+                        }
+                    }
+                })
     }
 
     override fun onDestroyView() {
@@ -125,6 +145,12 @@ class SpaceDirectoryFragment @Inject constructor(
         super.onDestroyView()
     }
 
+    private val showFabRunnable = Runnable {
+        if (isAdded) {
+            views.addOrCreateChatRoomButton.show()
+        }
+    }
+
     override fun invalidate() = withState(viewModel) { state ->
         epoxyController.setData(state)
 
@@ -132,38 +158,61 @@ class SpaceDirectoryFragment @Inject constructor(
 
         if (currentParentId == null) {
             // it's the root
-            val title = getString(R.string.space_explore_activity_title)
-            views.toolbar.title = title
+            toolbar?.setTitle(CommonStrings.space_explore_activity_title)
         } else {
-            val title = state.currentRootSummary?.name
+            val spaceName = state.currentRootSummary?.name
                     ?: state.currentRootSummary?.canonicalAlias
-                    ?: getString(R.string.space_explore_activity_title)
-            views.toolbar.title = title
+
+            if (spaceName != null) {
+                toolbar?.title = spaceName
+                toolbar?.subtitle = getString(CommonStrings.space_explore_activity_title)
+            } else {
+                toolbar?.title = getString(CommonStrings.space_explore_activity_title)
+            }
         }
 
-        spaceCardRenderer.render(state.currentRootSummary, emptyList(), this, views.spaceCard)
+        views.addOrCreateChatRoomButton.isVisible = state.canAddRooms
     }
 
-    override fun onPrepareOptionsMenu(menu: Menu) = withState(viewModel) { state ->
-        menu.findItem(R.id.spaceAddRoom)?.isVisible = state.canAddRooms
-        menu.findItem(R.id.spaceCreateRoom)?.isVisible = false // Not yet implemented
-        super.onPrepareOptionsMenu(menu)
+    override fun handlePrepareMenu(menu: Menu) {
+        withState(viewModel) { state ->
+            menu.findItem(R.id.spaceAddRoom)?.isVisible = state.canAddRooms
+            menu.findItem(R.id.spaceCreateRoom)?.isVisible = false // Not yet implemented
+
+            menu.findItem(R.id.spaceSearch)?.let { searchItem ->
+                val searchView = searchItem.actionView as SearchView
+                searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+                    override fun onQueryTextSubmit(query: String?): Boolean {
+                        return true
+                    }
+
+                    override fun onQueryTextChange(newText: String?): Boolean {
+                        onFilterQueryChanged(newText)
+                        return true
+                    }
+                })
+            }
+        }
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.spaceAddRoom    -> {
+    override fun handleMenuItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.spaceAddRoom -> {
                 withState(viewModel) { state ->
                     addExistingRooms(state.spaceId)
                 }
-                return true
+                true
             }
             R.id.spaceCreateRoom -> {
                 // not implemented yet
-                return true
+                true
             }
+            else -> false
         }
-        return super.onOptionsItemSelected(item)
+    }
+
+    override fun onFilterQueryChanged(query: String?) {
+        viewModel.handle(SpaceDirectoryViewAction.FilterRooms(query))
     }
 
     override fun onButtonClick(spaceChildInfo: SpaceChildInfo) {
@@ -200,33 +249,35 @@ class SpaceDirectoryFragment @Inject constructor(
     }
 
     override fun onUrlClicked(url: String, title: String): Boolean {
-        permalinkHandler
-                .launch(requireActivity(), url, null)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe { managed ->
-                    if (!managed) {
-                        if (title.isValidUrl() && url.isValidUrl() && URL(title).host != URL(url).host) {
-                            MaterialAlertDialogBuilder(requireActivity(), R.style.ThemeOverlay_Vector_MaterialAlertDialog_Destructive)
-                                    .setTitle(R.string.external_link_confirmation_title)
-                                    .setMessage(
-                                            getString(R.string.external_link_confirmation_message, title, url)
-                                                    .toSpannable()
-                                                    .colorizeMatchingText(url, colorProvider.getColorFromAttribute(R.attr.vctr_content_tertiary))
-                                                    .colorizeMatchingText(title, colorProvider.getColorFromAttribute(R.attr.vctr_content_tertiary))
-                                    )
-                                    .setPositiveButton(R.string._continue) { _, _ ->
-                                        openUrlInExternalBrowser(requireContext(), url)
-                                    }
-                                    .setNegativeButton(R.string.cancel, null)
-                                    .show()
-                        } else {
-                            // Open in external browser, in a new Tab
-                            openUrlInExternalBrowser(requireContext(), url)
-                        }
-                    }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val isHandled = permalinkHandler.launch(requireActivity(), url, null)
+            if (!isHandled) {
+                if (title.isValidUrl() && url.isValidUrl() && URL(title).host != URL(url).host) {
+                    MaterialAlertDialogBuilder(requireActivity(), im.vector.lib.ui.styles.R.style.ThemeOverlay_Vector_MaterialAlertDialog_Destructive)
+                            .setTitle(CommonStrings.external_link_confirmation_title)
+                            .setMessage(
+                                    getString(CommonStrings.external_link_confirmation_message, title, url)
+                                            .toSpannable()
+                                            .colorizeMatchingText(
+                                                    url,
+                                                    colorProvider.getColorFromAttribute(im.vector.lib.ui.styles.R.attr.vctr_content_tertiary)
+                                            )
+                                            .colorizeMatchingText(
+                                                    title,
+                                                    colorProvider.getColorFromAttribute(im.vector.lib.ui.styles.R.attr.vctr_content_tertiary)
+                                            )
+                            )
+                            .setPositiveButton(CommonStrings._continue) { _, _ ->
+                                openUrlInExternalBrowser(requireContext(), url)
+                            }
+                            .setNegativeButton(CommonStrings.action_cancel, null)
+                            .show()
+                } else {
+                    // Open in external browser, in a new Tab
+                    openUrlInExternalBrowser(requireContext(), url)
                 }
-                .disposeOnDestroyView()
+            }
+        }
         // In fact it is always managed
         return true
     }

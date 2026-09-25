@@ -1,28 +1,21 @@
 /*
- * Copyright (c) 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.call.webrtc
 
 import android.content.Context
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import im.vector.app.ActiveSessionDataSource
-import im.vector.app.BuildConfig
-import im.vector.app.core.services.CallService
+import im.vector.app.core.pushers.UnifiedPushHelper
+import im.vector.app.core.services.CallAndroidService
+import im.vector.app.features.analytics.AnalyticsTracker
+import im.vector.app.features.analytics.plan.CallEnded
+import im.vector.app.features.analytics.plan.CallStarted
 import im.vector.app.features.call.VectorCallActivity
 import im.vector.app.features.call.audio.CallAudioManager
 import im.vector.app.features.call.lookup.CallProtocolsChecker
@@ -30,9 +23,10 @@ import im.vector.app.features.call.lookup.CallUserMapper
 import im.vector.app.features.call.utils.EglUtils
 import im.vector.app.features.call.vectorCallService
 import im.vector.app.features.session.coroutineScope
-import im.vector.app.push.fcm.FcmHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.matrix.android.sdk.api.extensions.orFalse
 import org.matrix.android.sdk.api.extensions.tryOrNull
 import org.matrix.android.sdk.api.logger.LoggerTag
@@ -61,7 +55,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manage peerConnectionFactory & Peer connections outside of activity lifecycle to resist configuration changes
+ * Manage peerConnectionFactory & Peer connections outside of activity lifecycle to resist configuration changes.
  * Use app context
  */
 private val loggerTag = LoggerTag("WebRtcCallManager", LoggerTag.VOIP)
@@ -69,8 +63,12 @@ private val loggerTag = LoggerTag("WebRtcCallManager", LoggerTag.VOIP)
 @Singleton
 class WebRtcCallManager @Inject constructor(
         private val context: Context,
-        private val activeSessionDataSource: ActiveSessionDataSource
-) : CallListener, LifecycleObserver {
+        private val activeSessionDataSource: ActiveSessionDataSource,
+        private val analyticsTracker: AnalyticsTracker,
+        private val unifiedPushHelper: UnifiedPushHelper,
+        private val voipConfig: VoipConfig,
+) : CallListener,
+        DefaultLifecycleObserver {
 
     private val currentSession: Session?
         get() = activeSessionDataSource.currentValue?.orNull()
@@ -132,14 +130,13 @@ class WebRtcCallManager @Inject constructor(
     private val rootEglBase by lazy { EglUtils.rootEglBase }
 
     private var isInBackground: Boolean = true
+    private var syncStartedWhenInBackground: Boolean = false
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    fun entersForeground() {
+    override fun onResume(owner: LifecycleOwner) {
         isInBackground = false
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-    fun entersBackground() {
+    override fun onPause(owner: LifecycleOwner) {
         isInBackground = true
     }
 
@@ -213,9 +210,10 @@ class WebRtcCallManager @Inject constructor(
         }
 
         Timber.tag(loggerTag.value).v("PeerConnectionFactory.initialize")
-        PeerConnectionFactory.initialize(PeerConnectionFactory
-                .InitializationOptions.builder(context.applicationContext)
-                .createInitializationOptions()
+        PeerConnectionFactory.initialize(
+                PeerConnectionFactory
+                        .InitializationOptions.builder(context.applicationContext)
+                        .createInitializationOptions()
         )
 
         val options = PeerConnectionFactory.Options()
@@ -224,7 +222,8 @@ class WebRtcCallManager @Inject constructor(
                 /* enableIntelVp8Encoder */
                 true,
                 /* enableH264HighProfile */
-                true)
+                true
+        )
         val defaultVideoDecoderFactory = DefaultVideoDecoderFactory(eglBaseContext)
         Timber.tag(loggerTag.value).v("PeerConnectionFactory.createPeerConnectionFactory ...")
         peerConnectionFactory = PeerConnectionFactory.builder()
@@ -239,6 +238,7 @@ class WebRtcCallManager @Inject constructor(
         val currentCall = getCurrentCall().takeIf { it != call }
         currentCall?.updateRemoteOnHold(onHold = true)
         audioManager.setMode(if (call.mxCall.isVideoCall) CallAudioManager.Mode.VIDEO_CALL else CallAudioManager.Mode.AUDIO_CALL)
+        call.trackCallStarted()
         this.currentCall.setAndNotify(call)
     }
 
@@ -247,7 +247,8 @@ class WebRtcCallManager @Inject constructor(
         val webRtcCall = callsByCallId.remove(callId) ?: return Unit.also {
             Timber.tag(loggerTag.value).v("On call ended for unknown call $callId")
         }
-        CallService.onCallTerminated(context, callId, endCallReason, rejected)
+        webRtcCall.trackCallEnded()
+        CallAndroidService.onCallTerminated(context, callId, endCallReason, rejected)
         callsByRoomId[webRtcCall.signalingRoomId]?.remove(webRtcCall)
         callsByRoomId[webRtcCall.nativeRoomId]?.remove(webRtcCall)
         transferees.remove(callId)
@@ -265,13 +266,15 @@ class WebRtcCallManager @Inject constructor(
             peerConnectionFactory = null
             audioManager.setMode(CallAudioManager.Mode.DEFAULT)
             // did we start background sync? so we should stop it
-            if (isInBackground) {
-                if (FcmHelper.isPushSupported()) {
-                    currentSession?.stopAnyBackgroundSync()
+            if (syncStartedWhenInBackground) {
+                if (!unifiedPushHelper.isBackgroundSync()) {
+                    Timber.tag(loggerTag.value).v("Sync started when in background, stop it")
+                    currentSession?.syncService()?.stopAnyBackgroundSync()
                 } else {
                     // for fdroid we should not stop, it should continue syncing
                     // maybe we should restore default timeout/delay though?
                 }
+                syncStartedWhenInBackground = false
             }
         }
     }
@@ -298,9 +301,10 @@ class WebRtcCallManager @Inject constructor(
         if (transferee != null) {
             transferees[webRtcCall.callId] = transferee
         }
-        CallService.onOutgoingCallRinging(
+        CallAndroidService.onOutgoingCallRinging(
                 context = context.applicationContext,
-                callId = mxCall.callId)
+                callId = mxCall.callId
+        )
 
         // start the activity now
         context.startActivity(VectorCallActivity.newIntent(context, webRtcCall, VectorCallActivity.OUTGOING_CREATED))
@@ -362,7 +366,7 @@ class WebRtcCallManager @Inject constructor(
             offerSdp = callInviteContent.offer
         }
         // Start background service with notification
-        CallService.onIncomingCallRinging(
+        CallAndroidService.onIncomingCallRinging(
                 context = context,
                 callId = mxCall.callId,
                 isInBackground = isInBackground
@@ -371,11 +375,20 @@ class WebRtcCallManager @Inject constructor(
         // and thus won't be able to received events. For example if the call is
         // accepted on an other session this device will continue ringing
         if (isInBackground) {
-            if (FcmHelper.isPushSupported()) {
+            if (!unifiedPushHelper.isBackgroundSync()) {
                 // only for push version as fdroid version is already doing it?
-                currentSession?.startAutomaticBackgroundSync(30, 0)
+                syncStartedWhenInBackground = true
+                currentSession?.syncService()?.startAutomaticBackgroundSync(30, 0)
             } else {
                 // Maybe increase sync freq? but how to set back to default values?
+            }
+        }
+
+        // ensure the incoming call will not ring forever
+        sessionScope?.launch {
+            delay(2 * 60 * 1000 /* 2 minutes */)
+            if (mxCall.state is CallState.LocalRinging) {
+                onCallEnded(mxCall.callId, EndCallReason.INVITE_TIMEOUT, rejected = false)
             }
         }
     }
@@ -387,7 +400,7 @@ class WebRtcCallManager @Inject constructor(
                 }
         val mxCall = call.mxCall
         // Update service state
-        CallService.onPendingCall(
+        CallAndroidService.onPendingCall(
                 context = context,
                 callId = mxCall.callId
         )
@@ -436,7 +449,7 @@ class WebRtcCallManager @Inject constructor(
     }
 
     override fun onCallAssertedIdentityReceived(callAssertedIdentityContent: CallAssertedIdentityContent) {
-        if (!BuildConfig.handleCallAssertedIdentityEvents) {
+        if (!voipConfig.handleCallAssertedIdentityEvents) {
             return
         }
         val call = callsByCallId[callAssertedIdentityContent.callId]
@@ -444,5 +457,29 @@ class WebRtcCallManager @Inject constructor(
                     Timber.tag(loggerTag.value).w("onCallAssertedIdentityReceived for non active call? ${callAssertedIdentityContent.callId}")
                 }
         call.onCallAssertedIdentityReceived(callAssertedIdentityContent)
+    }
+
+    /**
+     * Analytics.
+     */
+    private fun WebRtcCall.trackCallStarted() {
+        analyticsTracker.capture(
+                CallStarted(
+                        isVideo = mxCall.isVideoCall,
+                        numParticipants = 2,
+                        placed = mxCall.isOutgoing
+                )
+        )
+    }
+
+    private fun WebRtcCall.trackCallEnded() {
+        analyticsTracker.capture(
+                CallEnded(
+                        durationMs = durationMillis(),
+                        isVideo = mxCall.isVideoCall,
+                        numParticipants = 2,
+                        placed = mxCall.isOutgoing
+                )
+        )
     }
 }

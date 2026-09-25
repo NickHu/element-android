@@ -16,16 +16,12 @@
 
 package org.matrix.android.sdk.internal.session.permalinks
 
-import org.matrix.android.sdk.api.MatrixPatterns.getDomain
-import org.matrix.android.sdk.api.query.QueryStringValue
-import org.matrix.android.sdk.api.session.events.model.EventType
-import org.matrix.android.sdk.api.session.events.model.toModel
+import org.matrix.android.sdk.api.MatrixPatterns.getServerName
 import org.matrix.android.sdk.api.session.room.members.roomMemberQueryParams
 import org.matrix.android.sdk.api.session.room.model.Membership
-import org.matrix.android.sdk.api.session.room.model.PowerLevelsContent
-import org.matrix.android.sdk.api.session.room.powerlevels.PowerLevelsHelper
 import org.matrix.android.sdk.internal.di.UserId
 import org.matrix.android.sdk.internal.session.room.RoomGetter
+import org.matrix.android.sdk.internal.session.room.powerlevels.getRoomPowerLevels
 import org.matrix.android.sdk.internal.session.room.state.StateEventDataSource
 import java.net.URLEncoder
 import javax.inject.Inject
@@ -55,9 +51,9 @@ internal class ViaParameterFinder @Inject constructor(
     }
 
     fun computeViaParams(userId: String, roomId: String, max: Int): List<String> {
-        val userHomeserver = userId.getDomain()
+        val userHomeserver = userId.getServerName()
         return getUserIdsOfJoinedMembers(roomId)
-                .map { it.getDomain() }
+                .map { it.getServerName() }
                 .groupBy { it }
                 .mapValues { it.value.size }
                 .toMutableMap()
@@ -68,10 +64,11 @@ internal class ViaParameterFinder @Inject constructor(
     }
 
     /**
-     * Get a set of userIds of joined members of a room
+     * Get a set of userIds of joined members of a room.
      */
     private fun getUserIdsOfJoinedMembers(roomId: String): Set<String> {
         return roomGetterProvider.get().getRoom(roomId)
+                ?.membershipService()
                 ?.getRoomMembers(roomMemberQueryParams { memberships = listOf(Membership.JOIN) })
                 ?.map { it.userId }
                 .orEmpty()
@@ -84,13 +81,14 @@ internal class ViaParameterFinder @Inject constructor(
     // It may not be possible for a user to join a room if there's no overlap between these
     fun computeViaParamsForRestricted(roomId: String, max: Int): List<String> {
         val userThatCanInvite = roomGetterProvider.get().getRoom(roomId)
+                ?.membershipService()
                 ?.getRoomMembers(roomMemberQueryParams { memberships = listOf(Membership.JOIN) })
                 ?.map { it.userId }
                 ?.filter { userCanInvite(userId, roomId) }
                 .orEmpty()
                 .toSet()
 
-        return userThatCanInvite.map { it.getDomain() }
+        return userThatCanInvite.map { it.getServerName() }
                 .groupBy { it }
                 .mapValues { it.value.size }
                 .toMutableMap()
@@ -99,10 +97,7 @@ internal class ViaParameterFinder @Inject constructor(
     }
 
     fun userCanInvite(userId: String, roomId: String): Boolean {
-        val powerLevelsHelper = stateEventDataSource.getStateEvent(roomId, EventType.STATE_ROOM_POWER_LEVELS, QueryStringValue.NoCondition)
-                ?.content?.toModel<PowerLevelsContent>()
-                ?.let { PowerLevelsHelper(it) }
-
-        return powerLevelsHelper?.isUserAbleToInvite(userId) ?: false
+        val roomPowerLevels = stateEventDataSource.getRoomPowerLevels(roomId)
+        return roomPowerLevels.isUserAbleToInvite(userId)
     }
 }

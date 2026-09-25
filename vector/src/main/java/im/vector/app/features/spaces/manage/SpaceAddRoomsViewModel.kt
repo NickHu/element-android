@@ -1,42 +1,36 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.manage
 
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.asFlow
 import androidx.paging.PagedList
-import com.airbnb.mvrx.ActivityViewModelContext
 import com.airbnb.mvrx.Fail
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.platform.VectorViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.matrix.android.sdk.api.query.ActiveSpaceFilter
 import org.matrix.android.sdk.api.query.QueryStringValue
 import org.matrix.android.sdk.api.query.RoomCategoryFilter
+import org.matrix.android.sdk.api.query.SpaceFilter
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoomSummary
 import org.matrix.android.sdk.api.session.room.RoomSortOrder
 import org.matrix.android.sdk.api.session.room.UpdatableLivePageResult
 import org.matrix.android.sdk.api.session.room.model.Membership
@@ -55,17 +49,21 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
 ) : VectorViewModel<SpaceAddRoomsState, SpaceAddRoomActions, SpaceAddRoomsViewEvents>(initialState) {
 
     @AssistedFactory
-    interface Factory {
-        fun create(initialState: SpaceAddRoomsState): SpaceAddRoomsViewModel
+    interface Factory : MavericksAssistedViewModelFactory<SpaceAddRoomsViewModel, SpaceAddRoomsState> {
+        override fun create(initialState: SpaceAddRoomsState): SpaceAddRoomsViewModel
     }
 
-    val updatableLiveSpacePageResult: UpdatableLivePageResult by lazy {
-        session.getFilteredPagedRoomSummariesLive(
+    companion object : MavericksViewModelFactory<SpaceAddRoomsViewModel, SpaceAddRoomsState> by hiltMavericksViewModelFactory()
+
+    private val roomService = session.roomService()
+
+    val spaceUpdatableLivePageResult: UpdatableLivePageResult by lazy {
+        roomService.getFilteredPagedRoomSummariesLive(
                 roomSummaryQueryParams {
                     this.memberships = listOf(Membership.JOIN)
                     this.excludeType = null
                     this.includeType = listOf(RoomType.SPACE)
-                    this.activeSpaceFilter = ActiveSpaceFilter.ExcludeSpace(initialState.spaceId)
+                    this.spaceFilter = SpaceFilter.ExcludeSpace(initialState.spaceId)
                     this.displayName = QueryStringValue.Contains(initialState.currentFilter, QueryStringValue.Case.INSENSITIVE)
                 },
                 pagedListConfig = PagedList.Config.Builder()
@@ -78,14 +76,20 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
         )
     }
 
-    val updatableLivePageResult: UpdatableLivePageResult by lazy {
-        session.getFilteredPagedRoomSummariesLive(
+    val spaceCountFlow: Flow<Int> by lazy {
+        spaceUpdatableLivePageResult.livePagedList.asFlow()
+                .flatMapLatest { roomService.getRoomCountLive(spaceUpdatableLivePageResult.queryParams).asFlow() }
+                .distinctUntilChanged()
+    }
+
+    val roomUpdatableLivePageResult: UpdatableLivePageResult by lazy {
+        roomService.getFilteredPagedRoomSummariesLive(
                 roomSummaryQueryParams {
                     this.memberships = listOf(Membership.JOIN)
                     this.excludeType = listOf(RoomType.SPACE)
                     this.includeType = null
                     this.roomCategoryFilter = RoomCategoryFilter.ONLY_ROOMS
-                    this.activeSpaceFilter = ActiveSpaceFilter.ExcludeSpace(initialState.spaceId)
+                    this.spaceFilter = SpaceFilter.ExcludeSpace(initialState.spaceId)
                     this.displayName = QueryStringValue.Contains(initialState.currentFilter, QueryStringValue.Case.INSENSITIVE)
                 },
                 pagedListConfig = PagedList.Config.Builder()
@@ -98,14 +102,20 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
         )
     }
 
-    val updatableDMLivePageResult: UpdatableLivePageResult by lazy {
-        session.getFilteredPagedRoomSummariesLive(
+    val roomCountFlow: Flow<Int> by lazy {
+        roomUpdatableLivePageResult.livePagedList.asFlow()
+                .flatMapLatest { roomService.getRoomCountLive(roomUpdatableLivePageResult.queryParams).asFlow() }
+                .distinctUntilChanged()
+    }
+
+    val dmUpdatableLivePageResult: UpdatableLivePageResult by lazy {
+        roomService.getFilteredPagedRoomSummariesLive(
                 roomSummaryQueryParams {
                     this.memberships = listOf(Membership.JOIN)
                     this.excludeType = listOf(RoomType.SPACE)
                     this.includeType = null
                     this.roomCategoryFilter = RoomCategoryFilter.ONLY_DM
-                    this.activeSpaceFilter = ActiveSpaceFilter.ExcludeSpace(initialState.spaceId)
+                    this.spaceFilter = SpaceFilter.ExcludeSpace(initialState.spaceId)
                     this.displayName = QueryStringValue.Contains(initialState.currentFilter, QueryStringValue.Case.INSENSITIVE)
                 },
                 pagedListConfig = PagedList.Config.Builder()
@@ -116,6 +126,12 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
                         .build(),
                 sortOrder = RoomSortOrder.NAME
         )
+    }
+
+    val dmCountFlow: Flow<Int> by lazy {
+        dmUpdatableLivePageResult.livePagedList.asFlow()
+                .flatMapLatest { roomService.getRoomCountLive(dmUpdatableLivePageResult.queryParams).asFlow() }
+                .distinctUntilChanged()
     }
 
     private val selectionList = mutableMapOf<String, Boolean>()
@@ -132,16 +148,6 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
         }
     }
 
-    companion object : MvRxViewModelFactory<SpaceAddRoomsViewModel, SpaceAddRoomsState> {
-        override fun create(viewModelContext: ViewModelContext, state: SpaceAddRoomsState): SpaceAddRoomsViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
-        }
-    }
-
     fun canGoBack(): Boolean {
         val needToSave = selectionList.values.any { it }
         if (needToSave) {
@@ -153,16 +159,9 @@ class SpaceAddRoomsViewModel @AssistedInject constructor(
     override fun handle(action: SpaceAddRoomActions) {
         when (action) {
             is SpaceAddRoomActions.UpdateFilter -> {
-                updatableLivePageResult.updateQuery {
-                    it.copy(
-                            displayName = QueryStringValue.Contains(action.filter, QueryStringValue.Case.INSENSITIVE)
-                    )
-                }
-                updatableLiveSpacePageResult.updateQuery {
-                    it.copy(
-                            displayName = QueryStringValue.Contains(action.filter, QueryStringValue.Case.INSENSITIVE)
-                    )
-                }
+                roomUpdatableLivePageResult.queryParams = roomUpdatableLivePageResult.queryParams.copy(
+                        displayName = QueryStringValue.Contains(action.filter, QueryStringValue.Case.INSENSITIVE)
+                )
                 setState {
                     copy(
                             currentFilter = action.filter

@@ -1,33 +1,22 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.manage
 
-import androidx.lifecycle.viewModelScope
-import com.airbnb.mvrx.ActivityViewModelContext
 import com.airbnb.mvrx.Fail
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.mvrx.runCatchingToAsync
 import im.vector.app.core.platform.VectorViewModel
 import im.vector.app.features.session.coroutineScope
@@ -35,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.matrix.android.sdk.api.extensions.tryOrNull
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoomSummary
 
 class SpaceManageRoomsViewModel @AssistedInject constructor(
         @Assisted val initialState: SpaceManageRoomViewState,
@@ -56,36 +46,28 @@ class SpaceManageRoomsViewModel @AssistedInject constructor(
     }
 
     @AssistedFactory
-    interface Factory {
-        fun create(initialState: SpaceManageRoomViewState): SpaceManageRoomsViewModel
+    interface Factory : MavericksAssistedViewModelFactory<SpaceManageRoomsViewModel, SpaceManageRoomViewState> {
+        override fun create(initialState: SpaceManageRoomViewState): SpaceManageRoomsViewModel
     }
 
-    companion object : MvRxViewModelFactory<SpaceManageRoomsViewModel, SpaceManageRoomViewState> {
-        override fun create(viewModelContext: ViewModelContext, state: SpaceManageRoomViewState): SpaceManageRoomsViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
-        }
-    }
+    companion object : MavericksViewModelFactory<SpaceManageRoomsViewModel, SpaceManageRoomViewState> by hiltMavericksViewModelFactory()
 
     override fun handle(action: SpaceManageRoomViewAction) {
         when (action) {
-            is SpaceManageRoomViewAction.ToggleSelection          -> handleToggleSelection(action)
-            is SpaceManageRoomViewAction.UpdateFilter             -> {
+            is SpaceManageRoomViewAction.ToggleSelection -> handleToggleSelection(action)
+            is SpaceManageRoomViewAction.UpdateFilter -> {
                 setState { copy(currentFilter = action.filter) }
             }
-            SpaceManageRoomViewAction.ClearSelection              -> {
+            SpaceManageRoomViewAction.ClearSelection -> {
                 setState { copy(selectedRooms = emptyList()) }
             }
-            SpaceManageRoomViewAction.BulkRemove                  -> {
+            SpaceManageRoomViewAction.BulkRemove -> {
                 handleBulkRemove()
             }
-            is SpaceManageRoomViewAction.MarkAllAsSuggested       -> {
+            is SpaceManageRoomViewAction.MarkAllAsSuggested -> {
                 handleBulkMarkAsSuggested(action.suggested)
             }
-            SpaceManageRoomViewAction.RefreshFromServer           -> {
+            SpaceManageRoomViewAction.RefreshFromServer -> {
                 refreshSummaryAPI()
             }
             SpaceManageRoomViewAction.LoadAdditionalItemsIfNeeded -> {
@@ -198,7 +180,7 @@ class SpaceManageRoomsViewModel @AssistedInject constructor(
                 val apiResult = session.spaceService().querySpaceChildren(
                         spaceId = initialState.spaceId,
                         from = nextToken,
-                        knownStateList = knownResults.childrenState.orEmpty(),
+                        knownStateList = knownResults.childrenState,
                         limit = paginationLimit
                 )
                 val newKnown = apiResult.children.mapNotNull { session.getRoomSummary(it.childRoomId) }

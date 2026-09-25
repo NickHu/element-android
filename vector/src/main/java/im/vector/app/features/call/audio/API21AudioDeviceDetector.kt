@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 @file:Suppress("DEPRECATION")
 
@@ -27,13 +18,13 @@ import im.vector.app.core.services.BluetoothHeadsetReceiver
 import im.vector.app.core.services.WiredHeadsetStateReceiver
 import org.matrix.android.sdk.api.logger.LoggerTag
 import timber.log.Timber
-import java.util.HashSet
 
 private val loggerTag = LoggerTag("API21AudioDeviceDetector", LoggerTag.VOIP)
 
-internal class API21AudioDeviceDetector(private val context: Context,
-                                        private val audioManager: AudioManager,
-                                        private val callAudioManager: CallAudioManager
+internal class API21AudioDeviceDetector(
+        private val context: Context,
+        private val audioManager: AudioManager,
+        private val callAudioManager: CallAudioManager
 ) : CallAudioManager.AudioDeviceDetector, WiredHeadsetStateReceiver.HeadsetEventListener, BluetoothHeadsetReceiver.EventListener {
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -52,6 +43,11 @@ internal class API21AudioDeviceDetector(private val context: Context,
         return HashSet<CallAudioManager.Device>().apply {
             if (isBluetoothHeadsetOn()) {
                 connectedBlueToothHeadset?.connectedDevices?.forEach {
+                    // Call requires permission which may be rejected by user: code should explicitly
+                    // check to see if permission is available (with checkPermission) or explicitly
+                    // handle a potential SecurityException
+                    // But it should not happen on API 21/22.
+                    @Suppress("MissingPermission")
                     add(CallAudioManager.Device.WirelessHeadset(it.name))
                 }
             }

@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.create
@@ -22,27 +13,37 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import com.airbnb.mvrx.activityViewModel
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.core.dialogs.GalleryOrCameraDialogHelper
+import im.vector.app.core.dialogs.GalleryOrCameraDialogHelperFactory
 import im.vector.app.core.extensions.configureWith
 import im.vector.app.core.extensions.hideKeyboard
 import im.vector.app.core.platform.OnBackPressed
 import im.vector.app.core.platform.VectorBaseFragment
-import im.vector.app.core.resources.ColorProvider
 import im.vector.app.databinding.FragmentSpaceCreateGenericEpoxyFormBinding
 import javax.inject.Inject
 
-class CreateSpaceDetailsFragment @Inject constructor(
-        private val epoxyController: SpaceDetailEpoxyController,
-        colorProvider: ColorProvider
-) : VectorBaseFragment<FragmentSpaceCreateGenericEpoxyFormBinding>(), SpaceDetailEpoxyController.Listener,
-        GalleryOrCameraDialogHelper.Listener, OnBackPressed {
+@AndroidEntryPoint
+class CreateSpaceDetailsFragment :
+        VectorBaseFragment<FragmentSpaceCreateGenericEpoxyFormBinding>(),
+        SpaceDetailEpoxyController.Listener,
+        GalleryOrCameraDialogHelper.Listener,
+        OnBackPressed {
+
+    @Inject lateinit var epoxyController: SpaceDetailEpoxyController
+    @Inject lateinit var galleryOrCameraDialogHelperFactory: GalleryOrCameraDialogHelperFactory
 
     private val sharedViewModel: CreateSpaceViewModel by activityViewModel()
 
     override fun getBinding(inflater: LayoutInflater, container: ViewGroup?) =
             FragmentSpaceCreateGenericEpoxyFormBinding.inflate(layoutInflater, container, false)
 
-    private val galleryOrCameraDialogHelper = GalleryOrCameraDialogHelper(this, colorProvider)
+    private lateinit var galleryOrCameraDialogHelper: GalleryOrCameraDialogHelper
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        galleryOrCameraDialogHelper = galleryOrCameraDialogHelperFactory.create(this)
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -50,7 +51,7 @@ class CreateSpaceDetailsFragment @Inject constructor(
         views.recyclerView.configureWith(epoxyController)
         epoxyController.listener = this
 
-        sharedViewModel.subscribe(this) {
+        sharedViewModel.onEach {
             epoxyController.setData(it)
         }
 

@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.timeline.merged
@@ -35,7 +26,8 @@ import kotlin.reflect.KMutableProperty0
 class MergedTimelines(
         private val coroutineScope: CoroutineScope,
         private val mainTimeline: Timeline,
-        private val secondaryTimelineParams: SecondaryTimelineParams) : Timeline by mainTimeline {
+        private val secondaryTimelineParams: SecondaryTimelineParams
+) : Timeline by mainTimeline {
 
     data class SecondaryTimelineParams(
             val timeline: Timeline,
@@ -81,14 +73,16 @@ class MergedTimelines(
                 timeline = mainTimeline,
                 wrappedListener = listener,
                 shouldFilterTypes = false,
-                allowedTypes = emptyList()) {
+                allowedTypes = emptyList()
+        ) {
             processTimelineUpdates(::mainIsInit, mainTimelineEvents, it)
         }
         val secondaryTimelineListener = ListenerInterceptor(
                 timeline = secondaryTimeline,
                 wrappedListener = listener,
                 shouldFilterTypes = secondaryTimelineParams.shouldFilterTypes,
-                allowedTypes = secondaryTimelineParams.allowedTypes) {
+                allowedTypes = secondaryTimelineParams.allowedTypes
+        ) {
             processTimelineUpdates(::secondaryIsInit, secondaryTimelineEvents, it)
         }
         listenersMapping[listener] = listOf(mainTimelineListener, secondaryTimelineListener)
@@ -110,7 +104,7 @@ class MergedTimelines(
         secondaryTimeline.removeAllListeners()
     }
 
-    override fun start() {
+    override fun start(rootThreadEventId: String?) {
         mainTimeline.start()
         secondaryTimeline.start()
     }
@@ -133,26 +127,8 @@ class MergedTimelines(
         secondaryTimeline.paginate(direction, count)
     }
 
-    override fun pendingEventCount(): Int {
-        return mainTimeline.pendingEventCount() + secondaryTimeline.pendingEventCount()
-    }
-
-    override fun failedToDeliverEventCount(): Int {
-        return mainTimeline.pendingEventCount() + secondaryTimeline.pendingEventCount()
-    }
-
-    override fun getTimelineEventAtIndex(index: Int): TimelineEvent? {
-        return mergedEvents.getOrNull(index)
-    }
-
     override fun getIndexOfEvent(eventId: String?): Int? {
         return positionsMapping[eventId]
-    }
-
-    override fun getTimelineEventWithId(eventId: String?): TimelineEvent? {
-        return positionsMapping[eventId]?.let {
-            getTimelineEventAtIndex(it)
-        }
     }
 
     private fun processTimelineUpdates(isInit: KMutableProperty0<Boolean>, eventsRef: MutableList<TimelineEvent>, newData: List<TimelineEvent>) {

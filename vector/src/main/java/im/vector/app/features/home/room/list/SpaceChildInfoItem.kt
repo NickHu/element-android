@@ -1,17 +1,8 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.list
@@ -36,12 +27,13 @@ import im.vector.app.core.epoxy.onClick
 import im.vector.app.core.extensions.setTextOrHide
 import im.vector.app.features.home.AvatarRenderer
 import im.vector.app.features.themes.ThemeUtils
+import im.vector.lib.strings.CommonStrings
 import me.gujun.android.span.image
 import me.gujun.android.span.span
 import org.matrix.android.sdk.api.util.MatrixItem
 
-@EpoxyModelClass(layout = R.layout.item_suggested_room)
-abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>() {
+@EpoxyModelClass
+abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>(R.layout.item_explore_space_child) {
 
     @EpoxyAttribute lateinit var avatarRenderer: AvatarRenderer
     @EpoxyAttribute lateinit var matrixItem: MatrixItem
@@ -51,6 +43,7 @@ abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>(
 
     @EpoxyAttribute var memberCount: Int = 0
     @EpoxyAttribute var loading: Boolean = false
+    @EpoxyAttribute var suggested: Boolean = false
 
     @EpoxyAttribute var buttonLabel: String? = null
     @EpoxyAttribute var errorLabel: String? = null
@@ -66,13 +59,13 @@ abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>(
             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             itemLongClickListener?.onLongClick(it) ?: false
         }
-        holder.titleView.text = matrixItem.displayName ?: holder.rootView.context.getString(R.string.unnamed_room)
+        holder.titleView.text = matrixItem.displayName ?: holder.rootView.context.getString(CommonStrings.unnamed_room)
         avatarRenderer.render(matrixItem, holder.avatarImageView)
 
         holder.descriptionText.text = span {
             span {
                 apply {
-                    val tintColor = ThemeUtils.getColor(holder.view.context, R.attr.vctr_content_secondary)
+                    val tintColor = ThemeUtils.getColor(holder.view.context, im.vector.lib.ui.styles.R.attr.vctr_content_secondary)
                     ContextCompat.getDrawable(holder.view.context, R.drawable.ic_member_small)
                             ?.apply {
                                 ThemeUtils.tintDrawableWithColor(this, tintColor)
@@ -89,6 +82,7 @@ abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>(
             }
         }
 
+        holder.suggestedTag.visibility = if (suggested) View.VISIBLE else View.GONE
         holder.joinButton.text = buttonLabel
 
         if (loading) {
@@ -121,7 +115,8 @@ abstract class SpaceChildInfoItem : VectorEpoxyModel<SpaceChildInfoItem.Holder>(
         val titleView by bind<TextView>(R.id.roomNameView)
         val joinButton by bind<Button>(R.id.joinSuggestedRoomButton)
         val joinButtonLoading by bind<ProgressBar>(R.id.joinSuggestedLoading)
-        val descriptionText by bind<TextView>(R.id.suggestedRoomDescription)
+        val descriptionText by bind<TextView>(R.id.roomDescription)
+        val suggestedTag by bind<TextView>(R.id.suggestedTag)
         val avatarImageView by bind<ImageView>(R.id.roomAvatarImageView)
         val rootView by bind<ViewGroup>(R.id.itemRoomLayout)
         val errorTextView by bind<TextView>(R.id.inlineErrorText)

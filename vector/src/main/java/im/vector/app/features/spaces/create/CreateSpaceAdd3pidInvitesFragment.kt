@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.create
@@ -21,7 +12,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import com.airbnb.mvrx.activityViewModel
-import im.vector.app.R
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.core.extensions.cleanup
 import im.vector.app.core.extensions.configureWith
 import im.vector.app.core.extensions.hideKeyboard
@@ -29,13 +20,16 @@ import im.vector.app.core.platform.OnBackPressed
 import im.vector.app.core.platform.VectorBaseFragment
 import im.vector.app.databinding.FragmentSpaceCreateGenericEpoxyFormBinding
 import im.vector.app.features.settings.VectorSettingsActivity
+import im.vector.lib.strings.CommonStrings
 import javax.inject.Inject
 
-class CreateSpaceAdd3pidInvitesFragment @Inject constructor(
-        private val epoxyController: SpaceAdd3pidEpoxyController
-) : VectorBaseFragment<FragmentSpaceCreateGenericEpoxyFormBinding>(),
+@AndroidEntryPoint
+class CreateSpaceAdd3pidInvitesFragment :
+        VectorBaseFragment<FragmentSpaceCreateGenericEpoxyFormBinding>(),
         SpaceAdd3pidEpoxyController.Listener,
         OnBackPressed {
+
+    @Inject lateinit var epoxyController: SpaceAdd3pidEpoxyController
 
     private val sharedViewModel: CreateSpaceViewModel by activityViewModel()
 
@@ -50,11 +44,11 @@ class CreateSpaceAdd3pidInvitesFragment @Inject constructor(
         views.recyclerView.configureWith(epoxyController)
         epoxyController.listener = this
 
-        sharedViewModel.subscribe(this) {
+        sharedViewModel.onEach {
             invalidateState(it)
         }
 
-        views.nextButton.setText(R.string.next_pf)
+        views.nextButton.setText(CommonStrings.action_next)
         views.nextButton.debouncedClicks {
             view.hideKeyboard()
             sharedViewModel.handle(CreateSpaceAction.NextFromAdd3pid)
@@ -65,9 +59,9 @@ class CreateSpaceAdd3pidInvitesFragment @Inject constructor(
         epoxyController.setData(it)
         val noEmails = it.default3pidInvite?.all { it.value.isNullOrBlank() } ?: true
         views.nextButton.text = if (noEmails) {
-            getString(R.string.skip_for_now)
+            getString(CommonStrings.skip_for_now)
         } else {
-            getString(R.string.next_pf)
+            getString(CommonStrings.action_next)
         }
     }
 

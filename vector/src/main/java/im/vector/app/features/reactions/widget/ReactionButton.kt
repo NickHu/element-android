@@ -1,32 +1,21 @@
 /*
- * Copyright 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.features.reactions.widget
 
 import android.content.Context
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
-import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 import androidx.core.content.withStyledAttributes
-import im.vector.app.EmojiCompatWrapper
+import dagger.hilt.android.AndroidEntryPoint
+import im.vector.app.EmojiSpanify
 import im.vector.app.R
-import im.vector.app.core.di.HasScreenInjector
-import im.vector.app.core.utils.DimensionConverter
 import im.vector.app.core.utils.TextUtils
 import im.vector.app.databinding.ReactionButtonBinding
 import javax.inject.Inject
@@ -35,18 +24,16 @@ import javax.inject.Inject
  * An animated reaction button.
  * Displays a String reaction (emoji), with a count, and that can be selected or not (toggle)
  */
-class ReactionButton @JvmOverloads constructor(context: Context,
-                                               attrs: AttributeSet? = null,
-                                               defStyleAttr: Int = 0)
-    : LinearLayout(context, attrs, defStyleAttr), View.OnClickListener, View.OnLongClickListener {
+@AndroidEntryPoint
+class ReactionButton @JvmOverloads constructor(
+        context: Context,
+        attrs: AttributeSet? = null,
+        defStyleAttr: Int = 0,
+        defStyleRes: Int = im.vector.lib.ui.styles.R.style.TimelineReactionView
+) :
+        LinearLayout(context, attrs, defStyleAttr, defStyleRes), View.OnClickListener, View.OnLongClickListener {
 
-    init {
-        if (context is HasScreenInjector) {
-            context.injector().inject(this)
-        }
-    }
-
-    @Inject lateinit var emojiCompatWrapper: EmojiCompatWrapper
+    @Inject lateinit var emojiSpanify: EmojiSpanify
 
     private val views: ReactionButtonBinding
 
@@ -62,7 +49,7 @@ class ReactionButton @JvmOverloads constructor(context: Context,
         set(value) {
             field = value
             // maybe cache this for performances?
-            val emojiSpanned = emojiCompatWrapper.safeEmojiSpanify(value)
+            val emojiSpanned = emojiSpanify.spanify(value)
             views.reactionText.text = emojiSpanned
         }
 
@@ -73,18 +60,17 @@ class ReactionButton @JvmOverloads constructor(context: Context,
     init {
         inflate(context, R.layout.reaction_button, this)
         orientation = HORIZONTAL
-        minimumHeight = DimensionConverter(context.resources).dpToPx(30)
-        gravity = Gravity.CENTER
+        layoutDirection = View.LAYOUT_DIRECTION_LOCALE
         views = ReactionButtonBinding.bind(this)
         views.reactionCount.text = TextUtils.formatCountToShortDecimal(reactionCount)
-        context.withStyledAttributes(attrs, R.styleable.ReactionButton, defStyleAttr) {
+        context.withStyledAttributes(attrs, im.vector.lib.ui.styles.R.styleable.ReactionButton, defStyleAttr) {
             onDrawable = ContextCompat.getDrawable(context, R.drawable.reaction_rounded_rect_shape)
             offDrawable = ContextCompat.getDrawable(context, R.drawable.reaction_rounded_rect_shape_off)
-            getString(R.styleable.ReactionButton_emoji)?.let {
+            getString(im.vector.lib.ui.styles.R.styleable.ReactionButton_emoji)?.let {
                 reactionString = it
             }
-            reactionCount = getInt(R.styleable.ReactionButton_reaction_count, 0)
-            val status = getBoolean(R.styleable.ReactionButton_toggled, false)
+            reactionCount = getInt(im.vector.lib.ui.styles.R.styleable.ReactionButton_reaction_count, 0)
+            val status = getBoolean(im.vector.lib.ui.styles.R.styleable.ReactionButton_toggled, false)
             setChecked(status)
         }
 

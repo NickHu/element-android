@@ -1,68 +1,75 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
-import com.airbnb.mvrx.MvRx
+import com.airbnb.mvrx.Mavericks
 import com.airbnb.mvrx.viewModel
-import im.vector.app.R
-import im.vector.app.core.di.ScreenComponent
-import im.vector.app.core.extensions.commitTransaction
+import dagger.hilt.android.AndroidEntryPoint
+import im.vector.app.core.extensions.registerStartForActivityResult
+import im.vector.app.core.extensions.replaceFragment
 import im.vector.app.core.platform.VectorBaseActivity
 import im.vector.app.databinding.ActivitySimpleBinding
+import im.vector.app.features.analytics.plan.ViewRoom
 import im.vector.app.features.matrixto.MatrixToBottomSheet
+import im.vector.app.features.matrixto.OriginOfMatrixTo
+import im.vector.app.features.navigation.Navigator
+import im.vector.app.features.roomdirectory.createroom.CreateRoomActivity
 import im.vector.app.features.spaces.explore.SpaceDirectoryArgs
 import im.vector.app.features.spaces.explore.SpaceDirectoryFragment
-import im.vector.app.features.spaces.explore.SpaceDirectoryState
+import im.vector.app.features.spaces.explore.SpaceDirectoryViewAction
 import im.vector.app.features.spaces.explore.SpaceDirectoryViewEvents
 import im.vector.app.features.spaces.explore.SpaceDirectoryViewModel
-import javax.inject.Inject
+import im.vector.lib.core.utils.compat.getParcelableExtraCompat
+import im.vector.lib.strings.CommonStrings
 
-class SpaceExploreActivity : VectorBaseActivity<ActivitySimpleBinding>(), SpaceDirectoryViewModel.Factory, MatrixToBottomSheet.InteractionListener {
-
-    @Inject lateinit var spaceDirectoryViewModelFactory: SpaceDirectoryViewModel.Factory
-
-    override fun injectWith(injector: ScreenComponent) {
-        injector.inject(this)
-    }
+@AndroidEntryPoint
+class SpaceExploreActivity : VectorBaseActivity<ActivitySimpleBinding>(), MatrixToBottomSheet.InteractionListener {
 
     override fun getBinding(): ActivitySimpleBinding = ActivitySimpleBinding.inflate(layoutInflater)
 
-    override fun getTitleRes(): Int = R.string.space_explore_activity_title
+    override fun getCoordinatorLayout() = views.coordinatorLayout
+
+    override val rootView: View
+        get() = views.coordinatorLayout
+
+    override fun getTitleRes(): Int = CommonStrings.space_explore_activity_title
 
     val sharedViewModel: SpaceDirectoryViewModel by viewModel()
 
+    private val createRoomResultLauncher = registerStartForActivityResult { activityResult ->
+        if (activityResult.resultCode == Activity.RESULT_OK) {
+            CreateRoomActivity.getCreatedRoomId(activityResult.data)?.let {
+                // we want to refresh from API
+                sharedViewModel.handle(SpaceDirectoryViewAction.RefreshUntilFound(it))
+            }
+        }
+    }
+
     private val fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
-        override fun onFragmentAttached(fm: FragmentManager, f: Fragment, context: Context) {
+        override fun onFragmentResumed(fm: FragmentManager, f: Fragment) {
             if (f is MatrixToBottomSheet) {
                 f.interactionListener = this@SpaceExploreActivity
             }
-            super.onFragmentAttached(fm, f, context)
+            super.onFragmentResumed(fm, f)
         }
 
-        override fun onFragmentDetached(fm: FragmentManager, f: Fragment) {
+        override fun onFragmentPaused(fm: FragmentManager, f: Fragment) {
             if (f is MatrixToBottomSheet) {
                 f.interactionListener = null
             }
-            super.onFragmentDetached(fm, f)
+            super.onFragmentPaused(fm, f)
         }
     }
 
@@ -71,17 +78,12 @@ class SpaceExploreActivity : VectorBaseActivity<ActivitySimpleBinding>(), SpaceD
         supportFragmentManager.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, false)
 
         if (isFirstCreation()) {
-            val simpleName = SpaceDirectoryFragment::class.java.simpleName
-            val args = intent?.getParcelableExtra<SpaceDirectoryArgs>(MvRx.KEY_ARG)
-            if (supportFragmentManager.findFragmentByTag(simpleName) == null) {
-                supportFragmentManager.commitTransaction {
-                    replace(R.id.simpleFragmentContainer,
-                            SpaceDirectoryFragment::class.java,
-                            Bundle().apply { this.putParcelable(MvRx.KEY_ARG, args) },
-                            simpleName
-                    )
-                }
-            }
+            val args = intent?.getParcelableExtraCompat<SpaceDirectoryArgs>(Mavericks.KEY_ARG)
+            replaceFragment(
+                    views.simpleFragmentContainer,
+                    SpaceDirectoryFragment::class.java,
+                    args
+            )
         }
 
         sharedViewModel.observeViewEvents {
@@ -90,10 +92,23 @@ class SpaceExploreActivity : VectorBaseActivity<ActivitySimpleBinding>(), SpaceD
                     finish()
                 }
                 is SpaceDirectoryViewEvents.NavigateToRoom -> {
-                    navigator.openRoom(this, it.roomId)
+                    navigator.openRoom(
+                            context = this,
+                            roomId = it.roomId,
+                            trigger = ViewRoom.Trigger.SpaceHierarchy
+                    )
                 }
                 is SpaceDirectoryViewEvents.NavigateToMxToBottomSheet -> {
-                    MatrixToBottomSheet.withLink(it.link, this).show(supportFragmentManager, "ShowChild")
+                    MatrixToBottomSheet.withLink(it.link, OriginOfMatrixTo.SPACE_EXPLORE).show(supportFragmentManager, "ShowChild")
+                }
+                is SpaceDirectoryViewEvents.NavigateToCreateNewRoom -> {
+                    createRoomResultLauncher.launch(
+                            CreateRoomActivity.getIntent(
+                                    this,
+                                    openAfterCreate = false,
+                                    currentSpaceId = it.currentSpaceId
+                            )
+                    )
                 }
             }
         }
@@ -107,15 +122,16 @@ class SpaceExploreActivity : VectorBaseActivity<ActivitySimpleBinding>(), SpaceD
     companion object {
         fun newIntent(context: Context, spaceId: String): Intent {
             return Intent(context, SpaceExploreActivity::class.java).apply {
-                putExtra(MvRx.KEY_ARG, SpaceDirectoryArgs(spaceId))
+                putExtra(Mavericks.KEY_ARG, SpaceDirectoryArgs(spaceId))
             }
         }
     }
 
-    override fun create(initialState: SpaceDirectoryState): SpaceDirectoryViewModel =
-            spaceDirectoryViewModelFactory.create(initialState)
+    override fun mxToBottomSheetNavigateToRoom(roomId: String, trigger: ViewRoom.Trigger?) {
+        navigator.openRoom(this, roomId, trigger = trigger)
+    }
 
-    override fun navigateToRoom(roomId: String) {
-        navigator.openRoom(this, roomId)
+    override fun mxToBottomSheetSwitchToSpace(spaceId: String) {
+        navigator.switchToSpace(this, spaceId, Navigator.PostSwitchSpaceAction.None)
     }
 }

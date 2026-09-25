@@ -1,43 +1,33 @@
 /*
- * Copyright (c) 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.preview
 
-import androidx.lifecycle.viewModelScope
-import com.airbnb.mvrx.ActivityViewModelContext
 import com.airbnb.mvrx.Fail
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.error.ErrorFormatter
 import im.vector.app.core.platform.VectorViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.matrix.android.sdk.api.session.Session
+import org.matrix.android.sdk.api.session.getRoomSummary
 import org.matrix.android.sdk.api.session.room.model.RoomType
 import org.matrix.android.sdk.api.session.room.peeking.PeekResult
 import org.matrix.android.sdk.api.session.space.JoinSpaceResult
-import org.matrix.android.sdk.internal.session.space.peeking.SpacePeekResult
-import org.matrix.android.sdk.internal.session.space.peeking.SpaceSubChildPeekResult
+import org.matrix.android.sdk.api.session.space.peeking.SpacePeekResult
+import org.matrix.android.sdk.api.session.space.peeking.SpaceSubChildPeekResult
 import timber.log.Timber
 
 class SpacePreviewViewModel @AssistedInject constructor(
@@ -58,19 +48,11 @@ class SpacePreviewViewModel @AssistedInject constructor(
     }
 
     @AssistedFactory
-    interface Factory {
-        fun create(initialState: SpacePreviewState): SpacePreviewViewModel
+    interface Factory : MavericksAssistedViewModelFactory<SpacePreviewViewModel, SpacePreviewState> {
+        override fun create(initialState: SpacePreviewState): SpacePreviewViewModel
     }
 
-    companion object : MvRxViewModelFactory<SpacePreviewViewModel, SpacePreviewState> {
-        override fun create(viewModelContext: ViewModelContext, state: SpacePreviewState): SpacePreviewViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
-        }
-    }
+    companion object : MavericksViewModelFactory<SpacePreviewViewModel, SpacePreviewState> by hiltMavericksViewModelFactory()
 
     override fun handle(action: SpacePreviewViewAction) {
         when (action) {
@@ -224,7 +206,7 @@ class SpacePreviewViewModel @AssistedInject constructor(
                                     }
                                     Success(emptyList())
                                 }
-                                else                       -> {
+                                else -> {
                                     Fail(Exception("Failed to get info"))
                                 }
                             }

@@ -1,25 +1,20 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.lib.ui.styles.debug
 
 import android.os.Bundle
 import android.view.Menu
+import android.view.MenuInflater
+import android.view.MenuItem
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.MenuProvider
+import androidx.lifecycle.Lifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import im.vector.lib.ui.styles.R
@@ -31,6 +26,7 @@ abstract class DebugMaterialThemeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setupMenu()
         val views = ActivityDebugMaterialThemeBinding.inflate(layoutInflater)
         setContentView(views.root)
 
@@ -72,6 +68,27 @@ abstract class DebugMaterialThemeActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupMenu() {
+        addMenuProvider(
+                object : MenuProvider {
+                    override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                        menuInflater.inflate(R.menu.menu_debug, menu)
+                    }
+
+                    override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                        Toast.makeText(
+                                this@DebugMaterialThemeActivity,
+                                "Menu ${menuItem.title} clicked!",
+                                Toast.LENGTH_SHORT
+                        ).show()
+                        return true
+                    }
+                },
+                this,
+                Lifecycle.State.RESUMED
+        )
+    }
+
     private fun showTestDialog(theme: Int) {
         MaterialAlertDialogBuilder(this, theme)
                 .setTitle("Dialog title")
@@ -81,10 +98,5 @@ abstract class DebugMaterialThemeActivity : AppCompatActivity() {
                 .setNegativeButton("Negative", null)
                 .setNeutralButton("Neutral", null)
                 .show()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_debug, menu)
-        return true
     }
 }

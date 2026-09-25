@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.call.lookup
@@ -20,6 +11,7 @@ import org.matrix.android.sdk.api.extensions.tryOrNull
 import org.matrix.android.sdk.api.session.Session
 import org.matrix.android.sdk.api.session.events.model.toContent
 import org.matrix.android.sdk.api.session.events.model.toModel
+import org.matrix.android.sdk.api.session.getRoom
 import org.matrix.android.sdk.api.session.room.Room
 import org.matrix.android.sdk.api.session.room.accountdata.RoomAccountDataTypes
 import org.matrix.android.sdk.api.session.room.model.create.CreateRoomParams
@@ -29,7 +21,7 @@ class CallUserMapper(private val session: Session, private val protocolsChecker:
     fun nativeRoomForVirtualRoom(roomId: String): String? {
         if (!protocolsChecker.supportVirtualRooms) return null
         val virtualRoom = session.getRoom(roomId) ?: return null
-        val virtualRoomEvent = virtualRoom.getAccountDataEvent(RoomAccountDataTypes.EVENT_TYPE_VIRTUAL_ROOM)
+        val virtualRoomEvent = virtualRoom.roomAccountDataService().getAccountDataEvent(RoomAccountDataTypes.EVENT_TYPE_VIRTUAL_ROOM)
         return virtualRoomEvent?.content?.toModel<RoomVirtualContent>()?.nativeRoomId
     }
 
@@ -61,7 +53,7 @@ class CallUserMapper(private val session: Session, private val protocolsChecker:
         val nativeLookup = session.sipNativeLookup(inviterId).firstOrNull() ?: return
         if (nativeLookup.fields.containsKey("is_virtual")) {
             val nativeUser = nativeLookup.userId
-            val nativeRoomId = session.getExistingDirectRoomWithUser(nativeUser)
+            val nativeRoomId = session.roomService().getExistingDirectRoomWithUser(nativeUser)
             if (nativeRoomId != null) {
                 // It's a virtual room with a matching native room, so set the room account data. This
                 // will make sure we know where how to map calls and also allow us know not to display
@@ -78,11 +70,11 @@ class CallUserMapper(private val session: Session, private val protocolsChecker:
 
     private suspend fun Room.markVirtual(nativeRoomId: String) {
         val virtualRoomContent = RoomVirtualContent(nativeRoomId = nativeRoomId)
-        updateAccountData(RoomAccountDataTypes.EVENT_TYPE_VIRTUAL_ROOM, virtualRoomContent.toContent())
+        roomAccountDataService().updateAccountData(RoomAccountDataTypes.EVENT_TYPE_VIRTUAL_ROOM, virtualRoomContent.toContent())
     }
 
     private suspend fun ensureVirtualRoomExists(userId: String, nativeRoomId: String): String {
-        val existingDMRoom = tryOrNull { session.getExistingDirectRoomWithUser(userId) }
+        val existingDMRoom = tryOrNull { session.roomService().getExistingDirectRoomWithUser(userId) }
         val roomId: String
         if (existingDMRoom != null) {
             roomId = existingDMRoom
@@ -92,7 +84,7 @@ class CallUserMapper(private val session: Session, private val protocolsChecker:
                 setDirectMessage()
                 creationContent[RoomAccountDataTypes.EVENT_TYPE_VIRTUAL_ROOM] = nativeRoomId
             }
-            roomId = session.createRoom(roomParams)
+            roomId = session.roomService().createRoom(roomParams)
         }
         return roomId
     }

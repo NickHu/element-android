@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.manage
@@ -25,13 +16,14 @@ import android.view.ViewGroup
 import androidx.appcompat.view.ActionMode
 import androidx.appcompat.view.ActionMode.Callback
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import androidx.transition.TransitionManager
 import com.airbnb.epoxy.EpoxyVisibilityTracker
 import com.airbnb.mvrx.Loading
 import com.airbnb.mvrx.activityViewModel
 import com.airbnb.mvrx.fragmentViewModel
 import com.airbnb.mvrx.withState
-import com.jakewharton.rxbinding3.appcompat.queryTextChanges
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.R
 import im.vector.app.core.extensions.cleanup
 import im.vector.app.core.extensions.configureWith
@@ -39,19 +31,23 @@ import im.vector.app.core.platform.OnBackPressed
 import im.vector.app.core.platform.VectorBaseFragment
 import im.vector.app.core.utils.toast
 import im.vector.app.databinding.FragmentSpaceAddRoomsBinding
-import io.reactivex.rxkotlin.subscribeBy
+import im.vector.lib.strings.CommonPlurals
+import im.vector.lib.strings.CommonStrings
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import org.matrix.android.sdk.api.session.room.model.SpaceChildInfo
-import java.util.concurrent.TimeUnit
+import reactivecircus.flowbinding.appcompat.queryTextChanges
 import javax.inject.Inject
 
-class SpaceManageRoomsFragment @Inject constructor(
-        private val viewModelFactory: SpaceManageRoomsViewModel.Factory,
-        private val epoxyController: SpaceManageRoomsController
-) : VectorBaseFragment<FragmentSpaceAddRoomsBinding>(),
-        SpaceManageRoomsViewModel.Factory,
+@AndroidEntryPoint
+class SpaceManageRoomsFragment :
+        VectorBaseFragment<FragmentSpaceAddRoomsBinding>(),
         OnBackPressed,
         SpaceManageRoomsController.Listener,
         Callback {
+
+    @Inject lateinit var epoxyController: SpaceManageRoomsController
 
     private val viewModel by fragmentViewModel(SpaceManageRoomsViewModel::class)
     private val sharedViewModel: SpaceManageSharedViewModel by activityViewModel()
@@ -66,26 +62,29 @@ class SpaceManageRoomsFragment @Inject constructor(
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
         setupToolbar(views.addRoomToSpaceToolbar)
-        views.appBarTitle.text = getString(R.string.space_manage_rooms_and_spaces)
+                .setTitle(CommonStrings.space_manage_rooms_and_spaces)
+                .allowBack()
+
         views.createNewRoom.isVisible = false
         epoxyController.listener = this
         views.roomList.configureWith(epoxyController, hasFixedSize = true, dividerDrawable = R.drawable.divider_horizontal)
         epoxyVisibilityTracker.attach(views.roomList)
 
         views.publicRoomsFilter.queryTextChanges()
-                .debounce(200, TimeUnit.MILLISECONDS)
-                .subscribeBy {
+                .debounce(200)
+                .onEach {
                     viewModel.handle(SpaceManageRoomViewAction.UpdateFilter(it.toString()))
                 }
-                .disposeOnDestroyView()
+                .launchIn(viewLifecycleOwner.lifecycleScope)
 
-        viewModel.selectSubscribe(SpaceManageRoomViewState::actionState) { actionState ->
+        viewModel.onEach(SpaceManageRoomViewState::actionState) { actionState ->
             when (actionState) {
                 is Loading -> {
                     sharedViewModel.handle(SpaceManagedSharedAction.ShowLoading)
                 }
-                else       -> {
+                else -> {
                     sharedViewModel.handle(SpaceManagedSharedAction.HideLoading)
                 }
             }
@@ -107,20 +106,19 @@ class SpaceManageRoomsFragment @Inject constructor(
         super.onDestroyView()
     }
 
-    override fun create(initialState: SpaceManageRoomViewState) = viewModelFactory.create(initialState)
-
     override fun invalidate() = withState(viewModel) { state ->
         epoxyController.setData(state)
 
         state.spaceSummary.invoke()?.let {
-            views.appBarSpaceInfo.text = it.displayName
+            toolbar?.subtitle = it.displayName
         }
+
         if (state.selectedRooms.isNotEmpty()) {
             if (currentActionMode == null) {
                 views.addRoomToSpaceToolbar.isVisible = true
                 vectorBaseActivity.startSupportActionMode(this)
             } else {
-                currentActionMode?.title = "${state.selectedRooms.size} selected"
+                toolbar?.title = resources.getQuantityString(CommonPlurals.room_details_selected, state.selectedRooms.size, state.selectedRooms.size)
             }
 //            views.addRoomToSpaceToolbar.isVisible = false
 //            views.addRoomToSpaceToolbar.startActionMode(this)
@@ -148,7 +146,7 @@ class SpaceManageRoomsFragment @Inject constructor(
         val inflater = mode?.menuInflater
         inflater?.inflate(R.menu.menu_manage_space, menu)
         withState(viewModel) {
-            mode?.title = resources.getQuantityString(R.plurals.room_details_selected, it.selectedRooms.size, it.selectedRooms.size)
+            mode?.title = resources.getQuantityString(CommonPlurals.room_details_selected, it.selectedRooms.size, it.selectedRooms.size)
         }
         currentActionMode = mode
         views.addRoomToSpaceToolbar.isVisible = false
@@ -178,7 +176,7 @@ class SpaceManageRoomsFragment @Inject constructor(
             R.id.action_mark_as_not_suggested -> {
                 viewModel.handle(SpaceManageRoomViewAction.MarkAllAsSuggested(false))
             }
-            else                              -> {
+            else -> {
             }
         }
         mode?.finish()

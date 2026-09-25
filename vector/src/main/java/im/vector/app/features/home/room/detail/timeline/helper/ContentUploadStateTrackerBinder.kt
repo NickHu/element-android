@@ -1,17 +1,8 @@
 /*
- * Copyright 2019 New Vector Ltd
+ * Copyright 2019-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.home.room.detail.timeline.helper
@@ -22,27 +13,31 @@ import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.view.isVisible
+import dagger.hilt.android.scopes.ActivityScoped
 import im.vector.app.R
 import im.vector.app.core.di.ActiveSessionHolder
-import im.vector.app.core.di.ScreenScope
 import im.vector.app.core.error.ErrorFormatter
-import im.vector.app.core.extensions.exhaustive
 import im.vector.app.core.utils.TextUtils
 import im.vector.app.features.home.room.detail.timeline.MessageColorProvider
+import im.vector.lib.strings.CommonStrings
 import org.matrix.android.sdk.api.session.content.ContentUploadStateTracker
 import org.matrix.android.sdk.api.session.room.send.SendState
 import javax.inject.Inject
 
-@ScreenScope
-class ContentUploadStateTrackerBinder @Inject constructor(private val activeSessionHolder: ActiveSessionHolder,
-                                                          private val messageColorProvider: MessageColorProvider,
-                                                          private val errorFormatter: ErrorFormatter) {
+@ActivityScoped
+class ContentUploadStateTrackerBinder @Inject constructor(
+        private val activeSessionHolder: ActiveSessionHolder,
+        private val messageColorProvider: MessageColorProvider,
+        private val errorFormatter: ErrorFormatter
+) {
 
     private val updateListeners = mutableMapOf<String, ContentUploadStateTracker.UpdateListener>()
 
-    fun bind(eventId: String,
-             isLocalFile: Boolean,
-             progressLayout: ViewGroup) {
+    fun bind(
+            eventId: String,
+            isLocalFile: Boolean,
+            progressLayout: ViewGroup
+    ) {
         activeSessionHolder.getSafeActiveSession()?.also { session ->
             val uploadStateTracker = session.contentUploadProgressTracker()
             val updateListener = ContentMediaProgressUpdater(progressLayout, isLocalFile, messageColorProvider, errorFormatter)
@@ -67,26 +62,28 @@ class ContentUploadStateTrackerBinder @Inject constructor(private val activeSess
     }
 }
 
-private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
-                                          private val isLocalFile: Boolean,
-                                          private val messageColorProvider: MessageColorProvider,
-                                          private val errorFormatter: ErrorFormatter) : ContentUploadStateTracker.UpdateListener {
+private class ContentMediaProgressUpdater(
+        private val progressLayout: ViewGroup,
+        private val isLocalFile: Boolean,
+        private val messageColorProvider: MessageColorProvider,
+        private val errorFormatter: ErrorFormatter
+) : ContentUploadStateTracker.UpdateListener {
 
     private val progressBar: ProgressBar = progressLayout.findViewById(R.id.mediaProgressBar)
     private val progressTextView: TextView = progressLayout.findViewById(R.id.mediaProgressTextView)
 
     override fun onUpdate(state: ContentUploadStateTracker.State) {
         when (state) {
-            is ContentUploadStateTracker.State.Idle                -> handleIdle()
+            is ContentUploadStateTracker.State.Idle -> handleIdle()
             is ContentUploadStateTracker.State.EncryptingThumbnail -> handleEncryptingThumbnail()
-            is ContentUploadStateTracker.State.UploadingThumbnail  -> handleProgressThumbnail(state)
-            is ContentUploadStateTracker.State.Encrypting          -> handleEncrypting(state)
-            is ContentUploadStateTracker.State.Uploading           -> handleProgress(state)
-            is ContentUploadStateTracker.State.Failure             -> handleFailure(/*state*/)
-            is ContentUploadStateTracker.State.Success             -> handleSuccess()
-            is ContentUploadStateTracker.State.CompressingImage    -> handleCompressingImage()
-            is ContentUploadStateTracker.State.CompressingVideo    -> handleCompressingVideo(state)
-        }.exhaustive
+            is ContentUploadStateTracker.State.UploadingThumbnail -> handleProgressThumbnail(state)
+            is ContentUploadStateTracker.State.Encrypting -> handleEncrypting(state)
+            is ContentUploadStateTracker.State.Uploading -> handleProgress(state)
+            is ContentUploadStateTracker.State.Failure -> handleFailure(/*state*/)
+            is ContentUploadStateTracker.State.Success -> handleSuccess()
+            is ContentUploadStateTracker.State.CompressingImage -> handleCompressingImage()
+            is ContentUploadStateTracker.State.CompressingVideo -> handleCompressingVideo(state)
+        }
     }
 
     private fun handleIdle() {
@@ -95,7 +92,7 @@ private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
             progressBar.isVisible = true
             progressBar.isIndeterminate = true
             progressBar.progress = 0
-            progressTextView.text = progressLayout.context.getString(R.string.send_file_step_idle)
+            progressTextView.text = progressLayout.context.getString(CommonStrings.send_file_step_idle)
             progressTextView.setTextColor(messageColorProvider.getMessageTextColor(SendState.UNSENT))
         } else {
             progressLayout.isVisible = false
@@ -103,19 +100,19 @@ private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
     }
 
     private fun handleEncryptingThumbnail() {
-        doHandleEncrypting(R.string.send_file_step_encrypting_thumbnail, 0, 0)
+        doHandleEncrypting(CommonStrings.send_file_step_encrypting_thumbnail, 0, 0)
     }
 
     private fun handleProgressThumbnail(state: ContentUploadStateTracker.State.UploadingThumbnail) {
-        doHandleProgress(R.string.send_file_step_sending_thumbnail, state.current, state.total)
+        doHandleProgress(CommonStrings.send_file_step_sending_thumbnail, state.current, state.total)
     }
 
     private fun handleEncrypting(state: ContentUploadStateTracker.State.Encrypting) {
-        doHandleEncrypting(R.string.send_file_step_encrypting_file, state.current, state.total)
+        doHandleEncrypting(CommonStrings.send_file_step_encrypting_file, state.current, state.total)
     }
 
     private fun handleProgress(state: ContentUploadStateTracker.State.Uploading) {
-        doHandleProgress(R.string.send_file_step_sending_file, state.current, state.total)
+        doHandleProgress(CommonStrings.send_file_step_sending_file, state.current, state.total)
     }
 
     private fun handleCompressingImage() {
@@ -123,7 +120,7 @@ private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
         progressBar.isVisible = true
         progressBar.isIndeterminate = true
         progressTextView.isVisible = true
-        progressTextView.text = progressLayout.context.getString(R.string.send_file_step_compressing_image)
+        progressTextView.text = progressLayout.context.getString(CommonStrings.send_file_step_compressing_image)
         progressTextView.setTextColor(messageColorProvider.getMessageTextColor(SendState.SENDING))
     }
 
@@ -136,7 +133,7 @@ private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
         progressBar.progress = state.percent.toInt()
         progressTextView.isVisible = true
         // False positive is here...
-        progressTextView.text = progressLayout.context.getString(R.string.send_file_step_compressing_video, state.percent.toInt())
+        progressTextView.text = progressLayout.context.getString(CommonStrings.send_file_step_compressing_video, state.percent.toInt())
         progressTextView.setTextColor(messageColorProvider.getMessageTextColor(SendState.SENDING))
     }
 
@@ -157,9 +154,11 @@ private class ContentMediaProgressUpdater(private val progressLayout: ViewGroup,
         progressBar.isIndeterminate = false
         progressBar.progress = percent.toInt()
         progressTextView.isVisible = true
-        progressTextView.text = progressLayout.context.getString(resId,
+        progressTextView.text = progressLayout.context.getString(
+                resId,
                 TextUtils.formatFileSize(progressLayout.context, current, true),
-                TextUtils.formatFileSize(progressLayout.context, total, true))
+                TextUtils.formatFileSize(progressLayout.context, total, true)
+        )
         progressTextView.setTextColor(messageColorProvider.getMessageTextColor(SendState.SENDING))
     }
 

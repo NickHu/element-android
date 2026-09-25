@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2020 New Vector Ltd
+ * Copyright 2020-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 package im.vector.app.features.form
 
@@ -22,20 +13,20 @@ import android.widget.ImageView
 import androidx.core.view.isVisible
 import com.airbnb.epoxy.EpoxyAttribute
 import com.airbnb.epoxy.EpoxyModelClass
-import com.airbnb.epoxy.EpoxyModelWithHolder
 import com.bumptech.glide.load.MultiTransformation
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import im.vector.app.R
 import im.vector.app.core.epoxy.ClickListener
 import im.vector.app.core.epoxy.VectorEpoxyHolder
+import im.vector.app.core.epoxy.VectorEpoxyModel
 import im.vector.app.core.epoxy.onClick
 import im.vector.app.core.glide.GlideApp
 import im.vector.app.features.home.AvatarRenderer
 import org.matrix.android.sdk.api.util.MatrixItem
 
-@EpoxyModelClass(layout = R.layout.item_editable_square_avatar)
-abstract class FormEditableSquareAvatarItem : EpoxyModelWithHolder<FormEditableSquareAvatarItem.Holder>() {
+@EpoxyModelClass
+abstract class FormEditableSquareAvatarItem : VectorEpoxyModel<FormEditableSquareAvatarItem.Holder>(R.layout.item_editable_square_avatar) {
 
     @EpoxyAttribute
     var avatarRenderer: AvatarRenderer? = null
@@ -59,7 +50,7 @@ abstract class FormEditableSquareAvatarItem : EpoxyModelWithHolder<FormEditableS
         super.bind(holder)
         holder.imageContainer.onClick(clickListener?.takeIf { enabled })
         when {
-            imageUri != null   -> {
+            imageUri != null -> {
                 val corner = TypedValue.applyDimension(
                         TypedValue.COMPLEX_UNIT_DIP,
                         8f,
@@ -73,7 +64,7 @@ abstract class FormEditableSquareAvatarItem : EpoxyModelWithHolder<FormEditableS
             matrixItem != null -> {
                 avatarRenderer?.render(matrixItem!!, holder.image)
             }
-            else               -> {
+            else -> {
                 avatarRenderer?.clear(holder.image)
             }
         }

@@ -1,67 +1,57 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.explore
 
-import androidx.lifecycle.viewModelScope
-import com.airbnb.mvrx.ActivityViewModelContext
 import com.airbnb.mvrx.Fail
-import com.airbnb.mvrx.FragmentViewModelContext
 import com.airbnb.mvrx.Loading
-import com.airbnb.mvrx.MvRxViewModelFactory
+import com.airbnb.mvrx.MavericksViewModelFactory
 import com.airbnb.mvrx.Success
 import com.airbnb.mvrx.Uninitialized
-import com.airbnb.mvrx.ViewModelContext
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import im.vector.app.core.di.MavericksAssistedViewModelFactory
+import im.vector.app.core.di.hiltMavericksViewModelFactory
 import im.vector.app.core.platform.VectorViewModel
-import im.vector.app.features.powerlevel.PowerLevelsObservableFactory
+import im.vector.app.features.analytics.AnalyticsTracker
+import im.vector.app.features.analytics.extensions.toAnalyticsJoinedRoom
+import im.vector.app.features.analytics.plan.JoinedRoom
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.matrix.android.sdk.api.session.Session
 import org.matrix.android.sdk.api.session.events.model.EventType
+import org.matrix.android.sdk.api.session.getRoom
+import org.matrix.android.sdk.api.session.getRoomSummary
 import org.matrix.android.sdk.api.session.room.model.Membership
 import org.matrix.android.sdk.api.session.room.model.RoomJoinRules
 import org.matrix.android.sdk.api.session.room.model.RoomSummary
 import org.matrix.android.sdk.api.session.room.model.RoomType
 import org.matrix.android.sdk.api.session.room.model.SpaceChildInfo
-import org.matrix.android.sdk.api.session.room.powerlevels.PowerLevelsHelper
 import org.matrix.android.sdk.api.session.room.roomSummaryQueryParams
-import org.matrix.android.sdk.rx.rx
+import org.matrix.android.sdk.flow.flow
 import timber.log.Timber
 
 class SpaceDirectoryViewModel @AssistedInject constructor(
         @Assisted val initialState: SpaceDirectoryState,
-        private val session: Session
+        private val session: Session,
+        private val analyticsTracker: AnalyticsTracker
 ) : VectorViewModel<SpaceDirectoryState, SpaceDirectoryViewAction, SpaceDirectoryViewEvents>(initialState) {
 
     @AssistedFactory
-    interface Factory {
-        fun create(initialState: SpaceDirectoryState): SpaceDirectoryViewModel
+    interface Factory : MavericksAssistedViewModelFactory<SpaceDirectoryViewModel, SpaceDirectoryState> {
+        override fun create(initialState: SpaceDirectoryState): SpaceDirectoryViewModel
     }
 
-    companion object : MvRxViewModelFactory<SpaceDirectoryViewModel, SpaceDirectoryState> {
-        override fun create(viewModelContext: ViewModelContext, state: SpaceDirectoryState): SpaceDirectoryViewModel? {
-            val factory = when (viewModelContext) {
-                is FragmentViewModelContext -> viewModelContext.fragment as? Factory
-                is ActivityViewModelContext -> viewModelContext.activity as? Factory
-            }
-            return factory?.create(state) ?: error("You should let your activity/fragment implements Factory interface")
-        }
+    companion object : MavericksViewModelFactory<SpaceDirectoryViewModel, SpaceDirectoryState> by hiltMavericksViewModelFactory() {
+        private const val PAGE_LENGTH = 10
     }
 
     init {
@@ -78,22 +68,45 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
         observeJoinedRooms()
         observeMembershipChanges()
         observePermissions()
+        observeKnownSummaries()
+    }
+
+    private fun observeKnownSummaries() {
+        // A we prefer to use known summaries to have better name resolution
+        // it's important to have them up to date. Particularly after creation where
+        // resolved name is sometimes just "New Room"
+        session.flow().liveRoomSummaries(
+                roomSummaryQueryParams {
+                    memberships = listOf(Membership.JOIN)
+                    includeType = null
+                }
+        ).execute {
+            val updatedRoomSummaries = it
+            copy(
+                    knownRoomSummaries = this.knownRoomSummaries.map { rs ->
+                        updatedRoomSummaries.invoke()?.firstOrNull { it.roomId == rs.roomId }
+                                ?: rs
+                    }
+            )
+        }
     }
 
     private fun observePermissions() {
         val room = session.getRoom(initialState.spaceId) ?: return
 
-        val powerLevelsContentLive = PowerLevelsObservableFactory(room).createObservable()
+        val powerLevelsFlow = room.flow().liveRoomPowerLevels()
 
-        powerLevelsContentLive
-                .subscribe {
-                    val powerLevelsHelper = PowerLevelsHelper(it)
+        powerLevelsFlow
+                .onEach { roomPowerLevels ->
                     setState {
-                        copy(canAddRooms = powerLevelsHelper.isUserAllowedToSend(session.myUserId, true,
-                                EventType.STATE_SPACE_CHILD))
+                        copy(
+                                canAddRooms = roomPowerLevels.isUserAllowedToSend(
+                                        userId = session.myUserId, isState = true, eventType = EventType.STATE_SPACE_CHILD
+                                )
+                        )
                     }
                 }
-                .disposeOnClear()
+                .launchIn(viewModelScope)
     }
 
     private fun refreshFromApi(rootId: String?) = withState { state ->
@@ -110,7 +123,7 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
             try {
                 val query = session.spaceService().querySpaceChildren(
                         spaceId,
-                        limit = 10
+                        limit = PAGE_LENGTH
                 )
                 val knownSummaries = query.children.mapNotNull {
                     session.getRoomSummary(it.childRoomId)
@@ -146,7 +159,7 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
             excludeType = null
         }
         session
-                .rx()
+                .flow()
                 .liveRoomSummaries(queryParams)
                 .map {
                     it.map { it.roomId }.toSet()
@@ -157,42 +170,56 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
     }
 
     private fun observeMembershipChanges() {
-        session.rx()
+        session.flow()
                 .liveRoomChangeMembershipState()
-                .subscribe {
-                    setState { copy(changeMembershipStates = it) }
+                .setOnEach {
+                    copy(changeMembershipStates = it)
                 }
-                .disposeOnClear()
     }
 
     override fun handle(action: SpaceDirectoryViewAction) {
         when (action) {
-            is SpaceDirectoryViewAction.ExploreSubSpace          -> {
+            is SpaceDirectoryViewAction.ExploreSubSpace -> {
                 handleExploreSubSpace(action)
             }
-            SpaceDirectoryViewAction.HandleBack                  -> {
+            SpaceDirectoryViewAction.HandleBack -> {
                 handleBack()
             }
-            is SpaceDirectoryViewAction.JoinOrOpen               -> {
+            is SpaceDirectoryViewAction.JoinOrOpen -> {
                 handleJoinOrOpen(action.spaceChildInfo)
             }
-            is SpaceDirectoryViewAction.NavigateToRoom           -> {
+            is SpaceDirectoryViewAction.NavigateToRoom -> {
                 _viewEvents.post(SpaceDirectoryViewEvents.NavigateToRoom(action.roomId))
             }
-            is SpaceDirectoryViewAction.ShowDetails              -> {
+            is SpaceDirectoryViewAction.ShowDetails -> {
                 // This is temporary for now to at least display something for the space beta
                 // It's not ideal as it's doing some peeking that is not needed.
                 session.permalinkService().createRoomPermalink(action.spaceChildInfo.childRoomId)?.let {
                     _viewEvents.post(SpaceDirectoryViewEvents.NavigateToMxToBottomSheet(it))
                 }
             }
-            SpaceDirectoryViewAction.Retry                       -> {
+            SpaceDirectoryViewAction.Retry -> {
                 handleRetry()
+            }
+            is SpaceDirectoryViewAction.RefreshUntilFound -> {
+                handleRefreshUntilFound(action.roomIdToFind)
             }
             SpaceDirectoryViewAction.LoadAdditionalItemsIfNeeded -> {
                 loadAdditionalItemsIfNeeded()
             }
+            is SpaceDirectoryViewAction.CreateNewRoom -> {
+                withState { state ->
+                    _viewEvents.post(SpaceDirectoryViewEvents.NavigateToCreateNewRoom(state.currentRootSummary?.roomId ?: initialState.spaceId))
+                }
+            }
+            is SpaceDirectoryViewAction.FilterRooms -> {
+                filter(action.query)
+            }
         }
+    }
+
+    private fun filter(query: String?) {
+        setState { copy(currentFilter = query.orEmpty()) }
     }
 
     private fun handleBack() = withState { state ->
@@ -213,6 +240,66 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
 
     private fun handleRetry() = withState { state ->
         refreshFromApi(state.hierarchyStack.lastOrNull() ?: initialState.spaceId)
+    }
+
+    private fun handleRefreshUntilFound(roomIdToFind: String?) = withState { state ->
+        val currentRootId = state.hierarchyStack.lastOrNull() ?: initialState.spaceId
+
+        val mutablePaginationStatus = state.paginationStatus.toMutableMap().apply {
+            this[currentRootId] = Loading()
+        }
+
+        // mark as paginating
+        setState {
+            copy(
+                    paginationStatus = mutablePaginationStatus
+            )
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            var query = session.spaceService().querySpaceChildren(
+                    currentRootId,
+                    limit = PAGE_LENGTH
+            )
+
+            var knownSummaries = query.children.mapNotNull {
+                session.getRoomSummary(it.childRoomId)
+                        ?.takeIf { it.membership == Membership.JOIN } // only take if joined because it will be up to date (synced)
+            }.distinctBy { it.roomId }
+
+            while (!query.children.any { it.childRoomId == roomIdToFind } && query.nextToken != null) {
+                // continue to paginate until found
+                val paginate = session.spaceService().querySpaceChildren(
+                        currentRootId,
+                        limit = PAGE_LENGTH,
+                        from = query.nextToken,
+                        knownStateList = query.childrenState
+                )
+
+                knownSummaries = (
+                        knownSummaries +
+                                (paginate.children.mapNotNull {
+                                    session.getRoomSummary(it.childRoomId)
+                                            ?.takeIf { it.membership == Membership.JOIN } // only take if joined because it will be up to date (synced)
+                                })
+                        ).distinctBy { it.roomId }
+
+                query = query.copy(
+                        children = query.children + paginate.children,
+                        nextToken = paginate.nextToken
+                )
+            }
+
+            setState {
+                copy(
+                        apiResults = this.apiResults.toMutableMap().apply {
+                            this[currentRootId] = Success(query)
+                        },
+                        paginationStatus = this.paginationStatus.toMutableMap().apply { this[currentRootId] = Success(Unit) }.toMap(),
+                        knownRoomSummaries = (state.knownRoomSummaries + knownSummaries).distinctBy { it.roomId },
+                )
+            }
+        }
     }
 
     private fun handleExploreSubSpace(action: SpaceDirectoryViewAction.ExploreSubSpace) = withState { state ->
@@ -238,10 +325,10 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
         }
         val shouldLoad = when (state.apiResults[newRootId]) {
             Uninitialized -> true
-            is Loading    -> false
-            is Success    -> false
-            is Fail       -> true
-            null          -> true
+            is Loading -> false
+            is Success -> false
+            is Fail -> true
+            null -> true
         }
 
         if (shouldLoad) {
@@ -260,7 +347,9 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
         if (mutablePaginationStatus[currentRootId] is Loading) return@withState
 
         setState {
-            copy(paginationStatus = mutablePaginationStatus.toMap())
+            copy(paginationStatus = mutablePaginationStatus.apply {
+                this[currentRootId] = Loading()
+            })
         }
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -276,7 +365,7 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
                 }
                 val query = session.spaceService().querySpaceChildren(
                         currentRootId,
-                        limit = 10,
+                        limit = PAGE_LENGTH,
                         from = currentResponse.nextToken,
                         knownStateList = currentResponse.childrenState
                 )
@@ -324,11 +413,14 @@ class SpaceDirectoryViewModel @AssistedInject constructor(
                     if (isSpace) {
                         session.spaceService().joinSpace(childId, null, spaceChildInfo.viaServers)
                     } else {
-                        session.joinRoom(childId, null, spaceChildInfo.viaServers)
+                        session.roomService().joinRoom(childId, null, spaceChildInfo.viaServers)
                     }
                 } catch (failure: Throwable) {
                     Timber.e(failure, "## Space: Failed to join room or subspace")
                 }
+
+                session.getRoomSummary(childId)
+                        ?.let { analyticsTracker.capture(it.toAnalyticsJoinedRoom(JoinedRoom.Trigger.SpaceHierarchy)) }
             }
         }
     }

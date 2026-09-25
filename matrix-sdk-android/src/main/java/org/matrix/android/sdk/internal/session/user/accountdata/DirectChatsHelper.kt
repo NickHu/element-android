@@ -16,16 +16,17 @@
 
 package org.matrix.android.sdk.internal.session.user.accountdata
 
+import io.realm.Realm
+import io.realm.RealmConfiguration
 import org.matrix.android.sdk.internal.database.model.RoomSummaryEntity
 import org.matrix.android.sdk.internal.database.query.getDirectRooms
 import org.matrix.android.sdk.internal.di.SessionDatabase
-import io.realm.Realm
-import io.realm.RealmConfiguration
 import org.matrix.android.sdk.internal.session.sync.model.accountdata.DirectMessagesContent
 import javax.inject.Inject
 
-internal class DirectChatsHelper @Inject constructor(@SessionDatabase
-                                                     private val realmConfiguration: RealmConfiguration) {
+internal class DirectChatsHelper @Inject constructor(
+        @SessionDatabase private val realmConfiguration: RealmConfiguration
+) {
 
     /**
      * @return a map of userId <-> list of roomId

@@ -1,17 +1,8 @@
 /*
- * Copyright (c) 2021 New Vector Ltd
+ * Copyright 2021-2024 New Vector Ltd.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+ * Please see LICENSE files in the repository root for full details.
  */
 
 package im.vector.app.features.spaces.manage
@@ -20,18 +11,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Parcelable
+import android.view.View
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
-import com.airbnb.mvrx.MvRx
+import androidx.lifecycle.lifecycleScope
+import com.airbnb.mvrx.Mavericks
 import com.airbnb.mvrx.viewModel
 import com.airbnb.mvrx.withState
-import com.google.android.material.appbar.MaterialToolbar
-import im.vector.app.R
-import im.vector.app.core.di.ScreenComponent
+import dagger.hilt.android.AndroidEntryPoint
 import im.vector.app.core.extensions.addFragmentToBackstack
-import im.vector.app.core.extensions.commitTransaction
 import im.vector.app.core.extensions.hideKeyboard
-import im.vector.app.core.platform.ToolbarConfigurable
+import im.vector.app.core.extensions.replaceFragment
 import im.vector.app.core.platform.VectorBaseActivity
 import im.vector.app.databinding.ActivitySimpleLoadingBinding
 import im.vector.app.features.roomdirectory.RoomDirectorySharedAction
@@ -41,8 +31,11 @@ import im.vector.app.features.roomdirectory.createroom.CreateRoomFragment
 import im.vector.app.features.roomprofile.RoomProfileArgs
 import im.vector.app.features.roomprofile.alias.RoomAliasFragment
 import im.vector.app.features.roomprofile.permissions.RoomPermissionsFragment
+import im.vector.lib.core.utils.compat.getParcelableExtraCompat
+import im.vector.lib.strings.CommonStrings
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.parcelize.Parcelize
-import javax.inject.Inject
 
 @Parcelize
 data class SpaceManageArgs(
@@ -50,20 +43,19 @@ data class SpaceManageArgs(
         val manageType: ManageType
 ) : Parcelable
 
-class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
-        ToolbarConfigurable,
-        SpaceManageSharedViewModel.Factory {
+@AndroidEntryPoint
+class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>() {
 
-    @Inject lateinit var sharedViewModelFactory: SpaceManageSharedViewModel.Factory
     private lateinit var sharedDirectoryActionViewModel: RoomDirectorySharedActionViewModel
-
-    override fun injectWith(injector: ScreenComponent) {
-        injector.inject(this)
-    }
 
     override fun getBinding(): ActivitySimpleLoadingBinding = ActivitySimpleLoadingBinding.inflate(layoutInflater)
 
-    override fun getTitleRes(): Int = R.string.space_add_existing_rooms
+    override fun getCoordinatorLayout() = views.coordinatorLayout
+
+    override val rootView: View
+        get() = views.coordinatorLayout
+
+    override fun getTitleRes(): Int = CommonStrings.space_add_existing_rooms
 
     val sharedViewModel: SpaceManageSharedViewModel by viewModel()
 
@@ -86,16 +78,17 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
 
         sharedDirectoryActionViewModel = viewModelProvider.get(RoomDirectorySharedActionViewModel::class.java)
         sharedDirectoryActionViewModel
-                .observe()
-                .subscribe { sharedAction ->
+                .stream()
+                .onEach { sharedAction ->
                     when (sharedAction) {
                         is RoomDirectorySharedAction.Back,
                         is RoomDirectorySharedAction.Close -> finish()
+                        else -> Unit
                     }
                 }
-                .disposeOnDestroy()
+                .launchIn(lifecycleScope)
 
-        val args = intent?.getParcelableExtra<SpaceManageArgs>(MvRx.KEY_ARG)
+        val args = intent?.getParcelableExtraCompat<SpaceManageArgs>(Mavericks.KEY_ARG)
         if (isFirstCreation()) {
             withState(sharedViewModel) {
                 when (it.manageType) {
@@ -103,25 +96,23 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
                     ManageType.AddRoomsOnlySpaces -> {
                         val simpleName = SpaceAddRoomFragment::class.java.simpleName
                         if (supportFragmentManager.findFragmentByTag(simpleName) == null) {
-                            supportFragmentManager.commitTransaction {
-                                replace(R.id.simpleFragmentContainer,
-                                        SpaceAddRoomFragment::class.java,
-                                        Bundle().apply { this.putParcelable(MvRx.KEY_ARG, args) },
-                                        simpleName
-                                )
-                            }
+                            replaceFragment(
+                                    views.simpleFragmentContainer,
+                                    SpaceAddRoomFragment::class.java,
+                                    args,
+                                    simpleName
+                            )
                         }
                     }
-                    ManageType.Settings    -> {
+                    ManageType.Settings -> {
                         val simpleName = SpaceSettingsFragment::class.java.simpleName
                         if (supportFragmentManager.findFragmentByTag(simpleName) == null && args?.spaceId != null) {
-                            supportFragmentManager.commitTransaction {
-                                replace(R.id.simpleFragmentContainer,
-                                        SpaceSettingsFragment::class.java,
-                                        Bundle().apply { this.putParcelable(MvRx.KEY_ARG, RoomProfileArgs(args.spaceId)) },
-                                        simpleName
-                                )
-                            }
+                            replaceFragment(
+                                    views.simpleFragmentContainer,
+                                    SpaceSettingsFragment::class.java,
+                                    RoomProfileArgs(args.spaceId),
+                                    simpleName
+                            )
                         }
                     }
                     ManageType.ManageRooms -> {
@@ -133,25 +124,25 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
 
         sharedViewModel.observeViewEvents {
             when (it) {
-                SpaceManagedSharedViewEvents.Finish                       -> {
+                SpaceManagedSharedViewEvents.Finish -> {
                     finish()
                 }
-                SpaceManagedSharedViewEvents.HideLoading                  -> {
+                SpaceManagedSharedViewEvents.HideLoading -> {
                     hideWaitingView()
                 }
-                SpaceManagedSharedViewEvents.ShowLoading                  -> {
+                SpaceManagedSharedViewEvents.ShowLoading -> {
                     showWaitingView()
                 }
-                SpaceManagedSharedViewEvents.NavigateToCreateRoom         -> {
+                SpaceManagedSharedViewEvents.NavigateToCreateRoom -> {
                     addFragmentToBackstack(
-                            R.id.simpleFragmentContainer,
+                            views.simpleFragmentContainer,
                             CreateRoomFragment::class.java,
                             CreateRoomArgs("", parentSpaceId = args?.spaceId)
                     )
                 }
                 SpaceManagedSharedViewEvents.NavigateToCreateSpace -> {
                     addFragmentToBackstack(
-                            R.id.simpleFragmentContainer,
+                            views.simpleFragmentContainer,
                             CreateRoomFragment::class.java,
                             CreateRoomArgs("", parentSpaceId = args?.spaceId, isSpace = true)
                     )
@@ -159,16 +150,16 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
                 SpaceManagedSharedViewEvents.NavigateToManageRooms -> {
                     args?.spaceId?.let { spaceId ->
                         addFragmentToBackstack(
-                                R.id.simpleFragmentContainer,
+                                views.simpleFragmentContainer,
                                 SpaceManageRoomsFragment::class.java,
                                 SpaceManageArgs(spaceId, ManageType.ManageRooms)
                         )
                     }
                 }
-                SpaceManagedSharedViewEvents.NavigateToAliasSettings      -> {
+                SpaceManagedSharedViewEvents.NavigateToAliasSettings -> {
                     args?.spaceId?.let { spaceId ->
                         addFragmentToBackstack(
-                                R.id.simpleFragmentContainer,
+                                views.simpleFragmentContainer,
                                 RoomAliasFragment::class.java,
                                 RoomProfileArgs(spaceId)
                         )
@@ -177,7 +168,7 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
                 SpaceManagedSharedViewEvents.NavigateToPermissionSettings -> {
                     args?.spaceId?.let { spaceId ->
                         addFragmentToBackstack(
-                                R.id.simpleFragmentContainer, RoomPermissionsFragment::class.java,
+                                views.simpleFragmentContainer, RoomPermissionsFragment::class.java,
                                 RoomProfileArgs(spaceId)
                         )
                     }
@@ -189,14 +180,8 @@ class SpaceManageActivity : VectorBaseActivity<ActivitySimpleLoadingBinding>(),
     companion object {
         fun newIntent(context: Context, spaceId: String, manageType: ManageType): Intent {
             return Intent(context, SpaceManageActivity::class.java).apply {
-                putExtra(MvRx.KEY_ARG, SpaceManageArgs(spaceId, manageType))
+                putExtra(Mavericks.KEY_ARG, SpaceManageArgs(spaceId, manageType))
             }
         }
-    }
-
-    override fun create(initialState: SpaceManageViewState) = sharedViewModelFactory.create(initialState)
-
-    override fun configure(toolbar: MaterialToolbar) {
-        configureToolbar(toolbar)
     }
 }
